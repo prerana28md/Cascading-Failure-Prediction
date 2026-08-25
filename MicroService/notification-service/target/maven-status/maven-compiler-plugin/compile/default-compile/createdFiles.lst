@@ -1,0 +1,5 @@
+com\cascade\notification\entity\Notification.class
+com\cascade\notification\repository\NotificationRepository.class
+com\cascade\notification\service\NotificationService.class
+com\cascade\notification\controller\NotificationController.class
+com\cascade\notification\NotificationServiceApplication.class

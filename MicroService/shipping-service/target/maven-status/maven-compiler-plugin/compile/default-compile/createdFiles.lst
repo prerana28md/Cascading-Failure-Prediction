@@ -1,0 +1,6 @@
+com\cascade\shipping\repository\ShipmentRepository.class
+META-INF\MANIFEST.MF
+com\cascade\shipping\ShippingServiceApplication.class
+com\cascade\shipping\controller\ShipmentController.class
+com\cascade\shipping\entity\Shipment.class
+com\cascade\shipping\service\ShipmentService.class
