@@ -1,13 +1,12 @@
 package com.cascade.inventory.entity;
 
-import jakarta.persistence.*;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
 
-@Entity
-@Table(name = "inventory")
+@Document(collection = "inventory")
 public class Inventory {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private Long id = System.currentTimeMillis();
     private Long productId;
     private String productName;
     private Double price;

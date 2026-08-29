@@ -1,13 +1,12 @@
 package com.cascade.delivery.entity;
 
-import jakarta.persistence.*;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
 
-@Entity
-@Table(name = "deliveries")
+@Document(collection = "deliveries")
 public class Delivery {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private Long id = System.currentTimeMillis();
     private Long shipmentId;
     private String status;
     private String estimatedDelivery;

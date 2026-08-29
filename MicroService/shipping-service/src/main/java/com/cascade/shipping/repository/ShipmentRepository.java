@@ -1,6 +1,6 @@
 package com.cascade.shipping.repository;
 
 import com.cascade.shipping.entity.Shipment;
-import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.mongodb.repository.MongoRepository;
 
-public interface ShipmentRepository extends JpaRepository<Shipment, Long> {}
+public interface ShipmentRepository extends MongoRepository<Shipment, Long> {}

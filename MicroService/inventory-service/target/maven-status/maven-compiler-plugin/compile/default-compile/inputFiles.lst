@@ -1,5 +1,5 @@
-D:\MicroService\inventory-service\src\main\java\com\cascade\inventory\controller\InventoryController.java
-D:\MicroService\inventory-service\src\main\java\com\cascade\inventory\entity\Inventory.java
-D:\MicroService\inventory-service\src\main\java\com\cascade\inventory\InventoryServiceApplication.java
-D:\MicroService\inventory-service\src\main\java\com\cascade\inventory\repository\InventoryRepository.java
-D:\MicroService\inventory-service\src\main\java\com\cascade\inventory\service\InventoryService.java
+D:\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\controller\InventoryController.java
+D:\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\entity\Inventory.java
+D:\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\InventoryServiceApplication.java
+D:\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\repository\InventoryRepository.java
+D:\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\service\InventoryService.java

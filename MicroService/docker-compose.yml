@@ -1,14 +1,4 @@
 services:
-  mysql:
-    image: mysql:8.4
-    container_name: cascade-mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: Root@123
-    ports:
-      - "3306:3306"
-    volumes:
-      - mysql_data:/var/lib/mysql
-
   api-gateway:
     build: ./api-gateway
     ports:
@@ -21,66 +11,39 @@ services:
     ports:
       - "8081:8081"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/order_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: Root@123
-    depends_on:
-      - mysql
+      SPRING_DATA_MONGODB_URI: "mongodb+srv://prerana28:prerana28@cluster0.zm6aijh.mongodb.net/order_db?retryWrites=true&w=majority&appName=Cluster0"
 
   payment-service:
     build: ./payment-service
     ports:
       - "8082:8082"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/payment_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: Root@123
-    depends_on:
-      - mysql
+      SPRING_DATA_MONGODB_URI: "mongodb+srv://prerana28:prerana28@cluster0.zm6aijh.mongodb.net/payment_db?retryWrites=true&w=majority&appName=Cluster0"
 
   inventory-service:
     build: ./inventory-service
     ports:
       - "8083:8083"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/inventory_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: Root@123
-    depends_on:
-      - mysql
+      SPRING_DATA_MONGODB_URI: "mongodb+srv://prerana28:prerana28@cluster0.zm6aijh.mongodb.net/inventory_db?retryWrites=true&w=majority&appName=Cluster0"
 
   shipping-service:
     build: ./shipping-service
     ports:
       - "8084:8084"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/shipping_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: Root@123
-    depends_on:
-      - mysql
+      SPRING_DATA_MONGODB_URI: "mongodb+srv://prerana28:prerana28@cluster0.zm6aijh.mongodb.net/shipping_db?retryWrites=true&w=majority&appName=Cluster0"
 
   delivery-service:
     build: ./delivery-service
     ports:
       - "8085:8085"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/delivery_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: Root@123
-    depends_on:
-      - mysql
+      SPRING_DATA_MONGODB_URI: "mongodb+srv://prerana28:prerana28@cluster0.zm6aijh.mongodb.net/delivery_db?retryWrites=true&w=majority&appName=Cluster0"
 
   notification-service:
     build: ./notification-service
     ports:
       - "8086:8086"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/notification_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: Root@123
-    depends_on:
-      - mysql
-
-volumes:
-  mysql_data:
+      SPRING_DATA_MONGODB_URI: "mongodb+srv://prerana28:prerana28@cluster0.zm6aijh.mongodb.net/notification_db?retryWrites=true&w=majority&appName=Cluster0"

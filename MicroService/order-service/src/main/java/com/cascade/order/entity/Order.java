@@ -1,13 +1,12 @@
 package com.cascade.order.entity;
 
-import jakarta.persistence.*;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
 
-@Entity
-@Table(name = "orders")
+@Document(collection = "orders")
 public class Order {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private Long id = System.currentTimeMillis();
     private Long customerId;
     private Long productId;
     private Integer quantity;

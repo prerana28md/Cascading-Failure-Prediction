@@ -1,5 +1,5 @@
 com\cascade\inventory\repository\InventoryRepository.class
-com\cascade\inventory\service\InventoryService.class
 com\cascade\inventory\InventoryServiceApplication.class
+com\cascade\inventory\service\InventoryService.class
 com\cascade\inventory\entity\Inventory.class
 com\cascade\inventory\controller\InventoryController.class
