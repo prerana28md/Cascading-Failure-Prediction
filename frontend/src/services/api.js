@@ -1,6 +1,11 @@
-// Centralized API Service for Microservice API Gateway (http://localhost:8080)
+// Centralized API Service for Microservice API Gateway
+//
+// Dev mode  (npm run dev):  hits http://localhost:8080 directly
+// Docker / production:      hits /api/* which nginx proxies to api-gateway:8080
+//
+// Set VITE_API_BASE_URL in .env.production to override (leave blank → uses /api)
 
-const API_BASE_URL = 'http://localhost:8080';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.PROD ? '/api' : 'http://localhost:8080');
 
 // Fallback Mock Storage in memory for seamless offline presentation
 const mockData = {

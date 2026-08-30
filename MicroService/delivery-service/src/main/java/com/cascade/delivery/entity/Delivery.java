@@ -10,6 +10,7 @@ public class Delivery {
     private Long shipmentId;
     private String status;
     private String estimatedDelivery;
+    private String lastLocation;
 
     public Delivery() {}
 
@@ -17,6 +18,7 @@ public class Delivery {
         this.shipmentId = shipmentId;
         this.status = status;
         this.estimatedDelivery = estimatedDelivery;
+        this.lastLocation = "Fulfillment Center";
     }
 
     public Long getId() {
@@ -49,5 +51,13 @@ public class Delivery {
 
     public void setEstimatedDelivery(String estimatedDelivery) {
         this.estimatedDelivery = estimatedDelivery;
+    }
+
+    public String getLastLocation() {
+        return lastLocation;
+    }
+
+    public void setLastLocation(String lastLocation) {
+        this.lastLocation = lastLocation;
     }
 }

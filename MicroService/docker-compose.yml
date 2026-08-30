@@ -1,49 +1,321 @@
+# ─── Reusable health-check defaults ──────────────────────────────────────────
+x-healthcheck-defaults: &spring-healthcheck
+  interval: 20s
+  timeout: 10s
+  retries: 5
+  start_period: 45s
+
+# ─── Common environment injected into every microservice ─────────────────────
+x-service-env: &common-env
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
+
+# ─── MongoDB Atlas base URI (password comes from .env file) ──────────────────
+x-mongo-base: &mongo-base "mongodb+srv://${MONGO_USER}:${MONGO_PASS}@cluster0.f46nymd.mongodb.net"
+
 services:
-  api-gateway:
-    build: ./api-gateway
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # OBSERVABILITY STACK  (starts first — no service dependencies)
+  # ════════════════════════════════════════════════════════════════════════════
+
+  # ── Jaeger  (traces) — UI: 16686 | OTLP HTTP: 4318 ────────────────────────
+  jaeger:
+    image: jaegertracing/all-in-one:1.58
+    container_name: jaeger
     ports:
-      - "8080:8080"
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP
+      - "14250:14250"   # Jaeger collector gRPC
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    restart: unless-stopped
+    networks:
+      - cascade-net
+
+  # ── Prometheus  (metrics) — UI: 9090 ──────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.53.1
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    restart: unless-stopped
+    networks:
+      - cascade-net
+
+  # ── Loki  (log aggregation) — port 3100 ───────────────────────────────────
+  loki:
+    image: grafana/loki:3.1.0
+    container_name: loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/loki-config.yml
+    user: "0"
+    restart: unless-stopped
+    networks:
+      - cascade-net
+
+  # ── Promtail  (log shipper: Docker → Loki) ────────────────────────────────
+  promtail:
+    image: grafana/promtail:3.1.0
+    container_name: promtail
+    volumes:
+      - ./observability/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: -config.file=/etc/promtail/config.yml
     depends_on:
-      - order-service
+      - loki
+    restart: unless-stopped
+    networks:
+      - cascade-net
 
-  order-service:
-    build: ./order-service
+  # ── Grafana  (dashboards) — UI: 3001 ──────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.1.3
+    container_name: grafana
     ports:
-      - "8081:8081"
+      - "3001:3000"
     environment:
-      SPRING_DATA_MONGODB_URI: "mongodb+srv://prerana28:prerana28@cluster0.zm6aijh.mongodb.net/order_db?retryWrites=true&w=majority&appName=Cluster0"
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./observability/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+      - jaeger
+    restart: unless-stopped
+    networks:
+      - cascade-net
 
-  payment-service:
-    build: ./payment-service
-    ports:
-      - "8082:8082"
-    environment:
-      SPRING_DATA_MONGODB_URI: "mongodb+srv://prerana28:prerana28@cluster0.zm6aijh.mongodb.net/payment_db?retryWrites=true&w=majority&appName=Cluster0"
+  # ════════════════════════════════════════════════════════════════════════════
+  # MICROSERVICES  (start after observability is up)
+  # ════════════════════════════════════════════════════════════════════════════
 
-  inventory-service:
-    build: ./inventory-service
-    ports:
-      - "8083:8083"
-    environment:
-      SPRING_DATA_MONGODB_URI: "mongodb+srv://prerana28:prerana28@cluster0.zm6aijh.mongodb.net/inventory_db?retryWrites=true&w=majority&appName=Cluster0"
-
-  shipping-service:
-    build: ./shipping-service
-    ports:
-      - "8084:8084"
-    environment:
-      SPRING_DATA_MONGODB_URI: "mongodb+srv://prerana28:prerana28@cluster0.zm6aijh.mongodb.net/shipping_db?retryWrites=true&w=majority&appName=Cluster0"
-
-  delivery-service:
-    build: ./delivery-service
-    ports:
-      - "8085:8085"
-    environment:
-      SPRING_DATA_MONGODB_URI: "mongodb+srv://prerana28:prerana28@cluster0.zm6aijh.mongodb.net/delivery_db?retryWrites=true&w=majority&appName=Cluster0"
-
+  # ── Notification Service  (port 8086)  ────────────────────────────────────
   notification-service:
-    build: ./notification-service
+    build:
+      context: ./notification-service
+      dockerfile: Dockerfile
+    image: cascade/notification-service:latest
+    container_name: notification-service
     ports:
       - "8086:8086"
     environment:
-      SPRING_DATA_MONGODB_URI: "mongodb+srv://prerana28:prerana28@cluster0.zm6aijh.mongodb.net/notification_db?retryWrites=true&w=majority&appName=Cluster0"
+      <<: *common-env
+      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER}:${MONGO_PASS}@cluster0.f46nymd.mongodb.net/notification_db?retryWrites=true&w=majority&appName=Cluster0"
+    depends_on:
+      - jaeger
+      - prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8086/actuator/health || exit 1"]
+      <<: *spring-healthcheck
+    restart: unless-stopped
+    networks:
+      - cascade-net
+
+  # ── Delivery Service  (port 8085)  ────────────────────────────────────────
+  delivery-service:
+    build:
+      context: ./delivery-service
+      dockerfile: Dockerfile
+    image: cascade/delivery-service:latest
+    container_name: delivery-service
+    ports:
+      - "8085:8085"
+    environment:
+      <<: *common-env
+      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER}:${MONGO_PASS}@cluster0.f46nymd.mongodb.net/delivery_db?retryWrites=true&w=majority&appName=Cluster0"
+    depends_on:
+      - jaeger
+      - prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8085/actuator/health || exit 1"]
+      <<: *spring-healthcheck
+    restart: unless-stopped
+    networks:
+      - cascade-net
+
+  # ── Inventory Service  (port 8083)  ───────────────────────────────────────
+  inventory-service:
+    build:
+      context: ./inventory-service
+      dockerfile: Dockerfile
+    image: cascade/inventory-service:latest
+    container_name: inventory-service
+    ports:
+      - "8083:8083"
+    environment:
+      <<: *common-env
+      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER}:${MONGO_PASS}@cluster0.f46nymd.mongodb.net/inventory_db?retryWrites=true&w=majority&appName=Cluster0"
+    depends_on:
+      - jaeger
+      - prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8083/actuator/health || exit 1"]
+      <<: *spring-healthcheck
+    restart: unless-stopped
+    networks:
+      - cascade-net
+
+  # ── Payment Service  (port 8082)  ─────────────────────────────────────────
+  payment-service:
+    build:
+      context: ./payment-service
+      dockerfile: Dockerfile
+    image: cascade/payment-service:latest
+    container_name: payment-service
+    ports:
+      - "8082:8082"
+    environment:
+      <<: *common-env
+      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER}:${MONGO_PASS}@cluster0.f46nymd.mongodb.net/payment_db?retryWrites=true&w=majority&appName=Cluster0"
+      SERVICE_NOTIFICATION_URL: "http://notification-service:8086"
+    depends_on:
+      notification-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8082/actuator/health || exit 1"]
+      <<: *spring-healthcheck
+    restart: unless-stopped
+    networks:
+      - cascade-net
+
+  # ── Shipping Service  (port 8084)  ────────────────────────────────────────
+  shipping-service:
+    build:
+      context: ./shipping-service
+      dockerfile: Dockerfile
+    image: cascade/shipping-service:latest
+    container_name: shipping-service
+    ports:
+      - "8084:8084"
+    environment:
+      <<: *common-env
+      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER}:${MONGO_PASS}@cluster0.f46nymd.mongodb.net/shipping_db?retryWrites=true&w=majority&appName=Cluster0"
+      SERVICE_DELIVERY_URL: "http://delivery-service:8085"
+      SERVICE_NOTIFICATION_URL: "http://notification-service:8086"
+    depends_on:
+      delivery-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8084/actuator/health || exit 1"]
+      <<: *spring-healthcheck
+    restart: unless-stopped
+    networks:
+      - cascade-net
+
+  # ── Order Service  (port 8081)  ───────────────────────────────────────────
+  order-service:
+    build:
+      context: ./order-service
+      dockerfile: Dockerfile
+    image: cascade/order-service:latest
+    container_name: order-service
+    ports:
+      - "8081:8081"
+    environment:
+      <<: *common-env
+      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER}:${MONGO_PASS}@cluster0.f46nymd.mongodb.net/order_db?retryWrites=true&w=majority&appName=Cluster0"
+      SERVICE_INVENTORY_URL: "http://inventory-service:8083"
+      SERVICE_PAYMENT_URL: "http://payment-service:8082"
+      SERVICE_SHIPPING_URL: "http://shipping-service:8084"
+      SERVICE_NOTIFICATION_URL: "http://notification-service:8086"
+    depends_on:
+      inventory-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+      shipping-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/actuator/health || exit 1"]
+      <<: *spring-healthcheck
+    restart: unless-stopped
+    networks:
+      - cascade-net
+
+  # ── API Gateway  (port 8080)  ─────────────────────────────────────────────
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    image: cascade/api-gateway:latest
+    container_name: api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      <<: *common-env
+      SERVICE_ORDER_URL: "http://order-service:8081"
+      SERVICE_PAYMENT_URL: "http://payment-service:8082"
+      SERVICE_INVENTORY_URL: "http://inventory-service:8083"
+      SERVICE_SHIPPING_URL: "http://shipping-service:8084"
+      SERVICE_DELIVERY_URL: "http://delivery-service:8085"
+      SERVICE_NOTIFICATION_URL: "http://notification-service:8086"
+    depends_on:
+      order-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+      inventory-service:
+        condition: service_healthy
+      shipping-service:
+        condition: service_healthy
+      delivery-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      <<: *spring-healthcheck
+    restart: unless-stopped
+    networks:
+      - cascade-net
+
+  # ── Frontend  (port 3000 → nginx 80)  ─────────────────────────────────────
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    image: cascade/frontend:latest
+    container_name: frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - cascade-net
+
+# ════════════════════════════════════════════════════════════════════════════
+# VOLUMES  (persistent storage for observability data)
+# ════════════════════════════════════════════════════════════════════════════
+volumes:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+
+networks:
+  cascade-net:
+    driver: bridge

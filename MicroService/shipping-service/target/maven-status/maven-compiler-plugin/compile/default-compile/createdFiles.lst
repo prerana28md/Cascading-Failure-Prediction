@@ -1,5 +1,11 @@
 com\cascade\shipping\repository\ShipmentRepository.class
-com\cascade\shipping\ShippingServiceApplication.class
+com\cascade\shipping\fault\FaultState$FaultType.class
 com\cascade\shipping\controller\ShipmentController.class
 com\cascade\shipping\entity\Shipment.class
+com\cascade\shipping\fault\FaultInterceptor.class
+com\cascade\shipping\fault\FaultConfig.class
+com\cascade\shipping\fault\FaultInterceptor$1.class
+com\cascade\shipping\fault\FaultController.class
+com\cascade\shipping\ShippingServiceApplication.class
+com\cascade\shipping\fault\FaultState.class
 com\cascade\shipping\service\ShipmentService.class

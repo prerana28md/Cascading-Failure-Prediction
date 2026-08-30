@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: 'Cascade Microservices'
+    orgId: 1
+    folder: 'OmniStore'
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards

@@ -1,5 +1,11 @@
 com\cascade\order\service\OrderService.class
-com\cascade\order\repository\OrderRepository.class
+com\cascade\order\fault\FaultConfig.class
+com\cascade\order\fault\FaultController.class
 com\cascade\order\OrderServiceApplication.class
+com\cascade\order\fault\FaultState.class
 com\cascade\order\entity\Order.class
 com\cascade\order\controller\OrderController.class
+com\cascade\order\fault\FaultInterceptor$1.class
+com\cascade\order\repository\OrderRepository.class
+com\cascade\order\fault\FaultInterceptor.class
+com\cascade\order\fault\FaultState$FaultType.class

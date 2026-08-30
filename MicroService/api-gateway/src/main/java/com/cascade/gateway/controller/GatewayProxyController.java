@@ -38,7 +38,18 @@ public class GatewayProxyController {
         this.restTemplate = restTemplate;
     }
 
-    @RequestMapping(value = {"/orders/**", "/order/**", "/payments/**", "/payment/**", "/inventory/**", "/inventories/**", "/shipping/**", "/shipments/**", "/delivery/**", "/deliveries/**", "/notification/**", "/notifications/**"},
+    @RequestMapping(value = {
+            "/orders/**", "/order/**",
+            "/payments/**", "/payment/**",
+            "/inventory/**", "/inventories/**",
+            "/shipping/**", "/shipments/**",
+            "/delivery/**", "/deliveries/**",
+            "/notification/**", "/notifications/**",
+            // Fault-injection control endpoints (proxied per target service)
+            // Usage: POST /fault/{service}/configure  e.g. /fault/order-service/configure
+            // The gateway strips the service prefix and forwards /fault/configure to the right service
+            "/fault/**"
+            },
             method = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE})
     public ResponseEntity<byte[]> proxyRequest(@RequestBody(required = false) byte[] body,
                                                 HttpMethod method,
@@ -51,7 +62,14 @@ public class GatewayProxyController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Target service not found".getBytes());
         }
 
-        String fullUrl = targetBaseUrl + requestURI + (queryString != null ? "?" + queryString : "");
+        // For fault routes: /fault/{serviceName}/{action} → /fault/{action}
+        String forwardUri = requestURI;
+        if (requestURI.startsWith("/fault/")) {
+            String[] parts = requestURI.split("/", 4); // ["","fault","serviceName","action?"]
+            forwardUri = parts.length >= 4 ? "/fault/" + parts[3] : "/fault/status";
+        }
+
+        String fullUrl = targetBaseUrl + forwardUri + (queryString != null ? "?" + queryString : "");
 
         try {
             HttpHeaders reqHeaders = new HttpHeaders();
@@ -113,6 +131,22 @@ public class GatewayProxyController {
             return deliveryServiceUrl;
         } else if (uri.startsWith("/notification")) {
             return notificationServiceUrl;
+        }
+        // Fault-injection routes: /fault/{serviceName}/configure|reset|status
+        // e.g. /fault/order-service/configure → http://order-service:8081/fault/configure
+        if (uri.startsWith("/fault/")) {
+            String[] parts = uri.split("/", 4); // ["", "fault", "serviceName", "action"]
+            if (parts.length >= 3) {
+                return switch (parts[2]) {
+                    case "order-service"        -> orderServiceUrl;
+                    case "payment-service"      -> paymentServiceUrl;
+                    case "inventory-service"    -> inventoryServiceUrl;
+                    case "shipping-service"     -> shippingServiceUrl;
+                    case "delivery-service"     -> deliveryServiceUrl;
+                    case "notification-service" -> notificationServiceUrl;
+                    default -> null;
+                };
+            }
         }
         return null;
     }

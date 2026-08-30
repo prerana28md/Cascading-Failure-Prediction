@@ -1,0 +1,57 @@
+# ─── Java / Maven ────────────────────────────────────────────────────────────
+**/target/
+**/*.jar
+**/*.class
+**/*.war
+**/*.ear
+**/maven-wrapper.jar
+.mvn/
+
+# ─── IDE ─────────────────────────────────────────────────────────────────────
+.idea/
+*.iml
+.eclipse/
+**/.classpath
+**/.project
+**/.settings/
+.vscode/
+
+# ─── Node / Frontend ─────────────────────────────────────────────────────────
+**/node_modules/
+**/dist/
+**/.parcel-cache/
+npm-debug.log*
+
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.venv/
+venv/
+*.ipynb_checkpoints
+
+# ─── ML model artefacts (large binary files) ─────────────────────────────────
+ml/model/*.joblib
+ml/model/*.png
+data-collection/dataset/
+
+# ─── Secrets / credentials ───────────────────────────────────────────────────
+MicroService/.env
+**/.env
+**/*.env.local
+
+# ─── Docker ──────────────────────────────────────────────────────────────────
+**/.dockerignore
+
+# ─── OS ──────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Logs ────────────────────────────────────────────────────────────────────
+*.log
+logs/
