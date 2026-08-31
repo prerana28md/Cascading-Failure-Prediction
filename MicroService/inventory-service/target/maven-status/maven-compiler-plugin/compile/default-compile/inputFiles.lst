@@ -1,9 +1,9 @@
-D:\Major Project\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\controller\InventoryController.java
-D:\Major Project\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\entity\Inventory.java
-D:\Major Project\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\fault\FaultConfig.java
-D:\Major Project\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\fault\FaultController.java
-D:\Major Project\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\fault\FaultInterceptor.java
-D:\Major Project\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\fault\FaultState.java
-D:\Major Project\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\InventoryServiceApplication.java
-D:\Major Project\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\repository\InventoryRepository.java
-D:\Major Project\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\service\InventoryService.java
+D:\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\controller\InventoryController.java
+D:\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\entity\Inventory.java
+D:\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\fault\FaultConfig.java
+D:\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\fault\FaultController.java
+D:\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\fault\FaultInterceptor.java
+D:\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\fault\FaultState.java
+D:\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\InventoryServiceApplication.java
+D:\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\repository\InventoryRepository.java
+D:\Cascading-Failure-Prediction\MicroService\inventory-service\src\main\java\com\cascade\inventory\service\InventoryService.java
