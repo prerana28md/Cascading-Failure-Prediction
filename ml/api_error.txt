@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "D:\Major Project\Cascading-Failure-Prediction\ml\predict_api.py", line 448, in <module>
+    print(f"\nPrediction API \u2192 http://{args.host}:{args.port}")
+  File "C:\Users\hp\AppData\Local\Programs\Python\Python312\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2192' in position 17: character maps to <undefined>
