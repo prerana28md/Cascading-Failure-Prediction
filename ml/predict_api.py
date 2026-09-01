@@ -92,10 +92,10 @@ def _prom(query):
 
 def scrape() -> dict:
     queries = {
-        "request_rate":   'sum(rate(http_server_requests_seconds_count{{application="{s}-service"}}[1m]))',
-        "error_rate_5xx": 'sum(rate(http_server_requests_seconds_count{{application="{s}-service",status=~"5.."}}[1m]))',
-        "p99_latency_s":  'histogram_quantile(0.99,sum(rate(http_server_requests_seconds_bucket{{application="{s}-service"}}[1m]))by(le))',
-        "p50_latency_s":  'histogram_quantile(0.50,sum(rate(http_server_requests_seconds_bucket{{application="{s}-service"}}[1m]))by(le))',
+        "request_rate":   'sum(rate(http_server_requests_seconds_count{{application="{s}-service"}}[2m]))',
+        "error_rate_5xx": 'sum(rate(http_server_requests_seconds_count{{application="{s}-service",status=~"5.."}}[2m]))',
+        "p99_latency_s":  'histogram_quantile(0.99,sum(rate(http_server_requests_seconds_bucket{{application="{s}-service"}}[2m]))by(le))',
+        "p50_latency_s":  'histogram_quantile(0.50,sum(rate(http_server_requests_seconds_bucket{{application="{s}-service"}}[2m]))by(le))',
         "jvm_heap_mb":    'jvm_memory_used_bytes{{application="{s}-service",area="heap"}}/1048576',
         "active_threads": 'tomcat_threads_busy_threads{{application="{s}-service"}}',
         "service_up":     'up{{job="{s}-service"}}',
