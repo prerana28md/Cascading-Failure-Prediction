@@ -1,0 +1,14 @@
+scenario,fault_service,fault_type,system_onset_run,total_runs,order_onset_run,payment_onset_run,inventory_onset_run,shipping_onset_run,delivery_onset_run,notification_onset_run
+CASCADE_PAYMENT_DOWN,payment-service,DOWN,1,5,-1,1,-1,-1,-1,-1
+CASCADE_SHIPPING_DOWN,shipping-service,DOWN,1,5,-1,1,-1,1,-1,-1
+DELIVERY_DOWN,delivery-service,DOWN,1,5,-1,-1,-1,-1,1,1
+INVENTORY_DOWN,inventory-service,DOWN,2,5,-1,-1,2,-1,-1,-1
+INVENTORY_ERROR,inventory-service,ERROR,1,5,-1,1,1,-1,-1,-1
+INVENTORY_LATENCY_2S,inventory-service,LATENCY,-1,5,-1,-1,-1,-1,-1,-1
+NOTIFICATION_DOWN,notification-service,DOWN,1,5,-1,-1,-1,1,-1,1
+PAYMENT_DOWN,payment-service,DOWN,1,5,-1,1,-1,-1,-1,-1
+PAYMENT_ERROR,payment-service,ERROR,1,5,-1,1,-1,-1,1,-1
+PAYMENT_LATENCY_3S,payment-service,LATENCY,-1,5,-1,-1,-1,-1,-1,-1
+SHIPPING_DOWN,shipping-service,DOWN,1,5,-1,-1,1,1,-1,-1
+SHIPPING_ERROR,shipping-service,ERROR,1,5,-1,-1,1,2,-1,-1
+SHIPPING_LATENCY_3S,shipping-service,LATENCY,-1,5,-1,-1,-1,-1,-1,-1

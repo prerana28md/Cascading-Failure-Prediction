@@ -1,0 +1,40 @@
+Z-Score Anomaly Detection — Summary
+==================================================
+Total rows    : 70
+Anomalies     : 65  (92.9%)
+Threshold     : ±3.0 σ
+
+Anomaly detection per scenario:
+                       rows  anomalies   mean_zscore
+scenario                                            
+CASCADE_PAYMENT_DOWN      5          5  4.287895e+08
+CASCADE_SHIPPING_DOWN     5          5  3.654775e+08
+DELIVERY_DOWN             5          5  4.118012e+08
+INVENTORY_DOWN            5          5  2.793684e+08
+INVENTORY_ERROR           5          5  4.662206e+08
+INVENTORY_LATENCY_2S      5          5  1.360176e+08
+NORMAL                    5          0  1.573000e+00
+NOTIFICATION_DOWN         5          5  6.924958e+08
+PAYMENT_DOWN              5          5  4.041810e+08
+PAYMENT_ERROR             5          5  4.091226e+08
+PAYMENT_LATENCY_3S        5          5  1.201196e+08
+SHIPPING_DOWN             5          5  4.631969e+08
+SHIPPING_ERROR            5          5  4.059578e+08
+SHIPPING_LATENCY_3S       5          5  1.200848e+08
+
+Top anomalous features (by frequency):
+  inventory_error_rate_4xx                           50
+  system_mean_error_rate                             49
+  system_max_error_rate                              49
+  delivery_jvm_heap_mb                               44
+  inventory_jvm_heap_mb                              39
+  payment_request_rate                               27
+  notification_jvm_heap_mb                           27
+  inventory_request_rate                             24
+  order_request_rate                                 18
+  payment_error_rate_5xx                             17
+  payment_error_ratio                                17
+  shipping_jvm_heap_mb                               15
+  shipping_error_rate_5xx                            15
+  shipping_error_ratio                               15
+  inventory_error_rate_5xx                           11

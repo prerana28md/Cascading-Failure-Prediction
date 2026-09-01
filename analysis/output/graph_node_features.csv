@@ -1,0 +1,7 @@
+service,in_degree,out_degree,pagerank,betweenness
+order,0,4,0.112218,0.0
+payment,1,1,0.136064,0.0
+inventory,1,0,0.136064,0.0
+shipping,1,2,0.136064,0.05
+delivery,1,0,0.170045,0.0
+notification,3,0,0.309545,0.0

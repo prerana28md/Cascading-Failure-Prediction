@@ -9,8 +9,8 @@ x-healthcheck-defaults: &spring-healthcheck
 x-service-env: &common-env
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
 
-# ─── MongoDB Atlas base URI (password comes from .env file) ──────────────────
-x-mongo-base: &mongo-base "mongodb+srv://${MONGO_USER}:${MONGO_PASS}@cluster0.f46nymd.mongodb.net"
+# ─── MongoDB Atlas base URI (password comes from .env file or default) ──────────
+x-mongo-base: &mongo-base "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net"
 
 services:
 
@@ -119,7 +119,7 @@ services:
       - "8086:8086"
     environment:
       <<: *common-env
-      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER}:${MONGO_PASS}@cluster0.f46nymd.mongodb.net/notification_db?retryWrites=true&w=majority&appName=Cluster0"
+      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/notification_db?retryWrites=true&w=majority&appName=Cluster0"
     depends_on:
       - jaeger
       - prometheus
@@ -141,7 +141,7 @@ services:
       - "8085:8085"
     environment:
       <<: *common-env
-      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER}:${MONGO_PASS}@cluster0.f46nymd.mongodb.net/delivery_db?retryWrites=true&w=majority&appName=Cluster0"
+      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/delivery_db?retryWrites=true&w=majority&appName=Cluster0"
     depends_on:
       - jaeger
       - prometheus
@@ -163,7 +163,7 @@ services:
       - "8083:8083"
     environment:
       <<: *common-env
-      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER}:${MONGO_PASS}@cluster0.f46nymd.mongodb.net/inventory_db?retryWrites=true&w=majority&appName=Cluster0"
+      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/inventory_db?retryWrites=true&w=majority&appName=Cluster0"
     depends_on:
       - jaeger
       - prometheus
@@ -185,7 +185,7 @@ services:
       - "8082:8082"
     environment:
       <<: *common-env
-      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER}:${MONGO_PASS}@cluster0.f46nymd.mongodb.net/payment_db?retryWrites=true&w=majority&appName=Cluster0"
+      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/payment_db?retryWrites=true&w=majority&appName=Cluster0"
       SERVICE_NOTIFICATION_URL: "http://notification-service:8086"
     depends_on:
       notification-service:
@@ -208,7 +208,7 @@ services:
       - "8084:8084"
     environment:
       <<: *common-env
-      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER}:${MONGO_PASS}@cluster0.f46nymd.mongodb.net/shipping_db?retryWrites=true&w=majority&appName=Cluster0"
+      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/shipping_db?retryWrites=true&w=majority&appName=Cluster0"
       SERVICE_DELIVERY_URL: "http://delivery-service:8085"
       SERVICE_NOTIFICATION_URL: "http://notification-service:8086"
     depends_on:
@@ -234,7 +234,7 @@ services:
       - "8081:8081"
     environment:
       <<: *common-env
-      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER}:${MONGO_PASS}@cluster0.f46nymd.mongodb.net/order_db?retryWrites=true&w=majority&appName=Cluster0"
+      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/order_db?retryWrites=true&w=majority&appName=Cluster0"
       SERVICE_INVENTORY_URL: "http://inventory-service:8083"
       SERVICE_PAYMENT_URL: "http://payment-service:8082"
       SERVICE_SHIPPING_URL: "http://shipping-service:8084"

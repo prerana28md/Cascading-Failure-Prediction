@@ -131,10 +131,10 @@ def train(dataset_path: str):
         if k_neighbors >= 1:
             sm = SMOTE(random_state=42, k_neighbors=k_neighbors)
             X_train, y_train = sm.fit_resample(X_train, y_train)
-            print(f"After SMOTE — Train: {len(X_train)} | Distribution: {dict(zip(*np.unique(y_train, return_counts=True)))}")
+            print(f"After SMOTE - Train: {len(X_train)} | Distribution: {dict(zip(*np.unique(y_train, return_counts=True)))}")
     else:
         if not HAS_SMOTE:
-            print("[INFO] imbalanced-learn not installed — skipping SMOTE. Run: pip install imbalanced-learn")
+            print("[INFO] imbalanced-learn not installed - skipping SMOTE. Run: pip install imbalanced-learn")
 
     # ── Hyperparameter search ─────────────────────────────────────────────────
     print("\nRunning GridSearchCV (this may take a minute)...")
@@ -170,7 +170,7 @@ def train(dataset_path: str):
 
     report_lines = []
     report_lines.append("=" * 60)
-    report_lines.append("Cascading Failure Prediction — Evaluation Report")
+    report_lines.append("Cascading Failure Prediction - Evaluation Report")
     report_lines.append("=" * 60)
     report_lines.append(f"\nDataset       : {dataset_path}")
     report_lines.append(f"Features      : {len(feature_names)}")
@@ -195,7 +195,7 @@ def train(dataset_path: str):
     print("\n" + report_text)
 
     report_path = os.path.join(MODEL_DIR, "evaluation_report.txt")
-    with open(report_path, "w") as f:
+    with open(report_path, "w", encoding="utf-8") as f:
         f.write(report_text)
 
     # ── Confusion matrix heatmap ──────────────────────────────────────────────
@@ -228,14 +228,14 @@ def train(dataset_path: str):
     # ── Save model artefacts ──────────────────────────────────────────────────
     joblib.dump(best_rf, os.path.join(MODEL_DIR, "cascade_rf_model.joblib"))
     joblib.dump(scaler,  os.path.join(MODEL_DIR, "scaler.joblib"))
-    with open(os.path.join(MODEL_DIR, "features.json"), "w") as f:
+    with open(os.path.join(MODEL_DIR, "features.json"), "w", encoding="utf-8") as f:
         json.dump(feature_names, f, indent=2)
 
-    print(f"\nModel saved       → {MODEL_DIR}/cascade_rf_model.joblib")
-    print(f"Scaler saved      → {MODEL_DIR}/scaler.joblib")
-    print(f"Features saved    → {MODEL_DIR}/features.json")
-    print(f"Evaluation report → {MODEL_DIR}/evaluation_report.txt")
-    print(f"Feature chart     → {MODEL_DIR}/feature_importance.png")
+    print(f"\nModel saved       -> {MODEL_DIR}/cascade_rf_model.joblib")
+    print(f"Scaler saved      -> {MODEL_DIR}/scaler.joblib")
+    print(f"Features saved    -> {MODEL_DIR}/features.json")
+    print(f"Evaluation report -> {MODEL_DIR}/evaluation_report.txt")
+    print(f"Feature chart     -> {MODEL_DIR}/feature_importance.png")
 
 
 if __name__ == "__main__":

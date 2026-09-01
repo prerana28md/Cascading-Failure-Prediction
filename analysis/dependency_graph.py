@@ -174,7 +174,7 @@ def visualise(G: nx.DiGraph, path: str):
     plt.tight_layout()
     plt.savefig(path, dpi=150, bbox_inches="tight")
     plt.close()
-    print(f"Graph visualisation → {path}")
+    print(f"Graph visualisation -> {path}")
 
 
 def main(input_path: str, corr_threshold: float):

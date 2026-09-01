@@ -250,13 +250,13 @@ def main(runs_per_scenario: int):
 
     df = pd.DataFrame(all_rows)
     df.to_csv(raw_path, index=False)
-    print(f"\nRaw dataset saved → {raw_path}  ({len(df)} rows, {len(df.columns)} columns)")
+    print(f"\nRaw dataset saved -> {raw_path}  ({len(df)} rows, {len(df.columns)} columns)")
 
     # ── Feature engineering & clean dataset ──────────────────────────────────
     feature_df = engineer_features(df)
     clean_path = os.path.join(OUTPUT_DIR, "dataset.csv")
     feature_df.to_csv(clean_path, index=False)
-    print(f"Feature dataset saved → {clean_path}  ({len(feature_df)} rows, {len(feature_df.columns)} columns)")
+    print(f"Feature dataset saved -> {clean_path}  ({len(feature_df)} rows, {len(feature_df.columns)} columns)")
 
     print_summary(feature_df)
 

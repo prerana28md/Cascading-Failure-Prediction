@@ -115,13 +115,13 @@ def main(input_path: str):
     temporal_df = add_temporal_features(df)
     out_temporal = os.path.join(OUTPUT_DIR, "temporal_features.csv")
     temporal_df.to_csv(out_temporal, index=False)
-    print(f"Temporal features → {out_temporal}")
+    print(f"Temporal features -> {out_temporal}")
 
     # Propagation delay analysis
     prop_df = estimate_propagation_delays(temporal_df)
     out_prop = os.path.join(OUTPUT_DIR, "propagation_delays.csv")
     prop_df.to_csv(out_prop, index=False)
-    print(f"Propagation delays → {out_prop}")
+    print(f"Propagation delays -> {out_prop}")
 
     if not prop_df.empty:
         print("\nPropagation delay per scenario:")

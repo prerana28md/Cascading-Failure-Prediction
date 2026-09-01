@@ -79,11 +79,20 @@ def _load_model():
 
 
 # ── Prometheus scraper ────────────────────────────────────────────────────────
+def _is_prometheus_up() -> bool:
+    try:
+        import requests as req
+        r = req.get(f"{PROMETHEUS_URL}/api/v1/query?query=up", timeout=0.5)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
 def _prom(query):
     try:
         import requests as req
         r = req.get(f"{PROMETHEUS_URL}/api/v1/query",
-                    params={"query": query}, timeout=5)
+                    params={"query": query}, timeout=0.5)
         res = r.json().get("data", {}).get("result", [])
         return float(res[0]["value"][1]) if res else 0.0
     except Exception:
@@ -101,9 +110,15 @@ def scrape() -> dict:
         "service_up":     'up{{job="{s}-service"}}',
     }
     raw = {}
-    for svc in SERVICES:
-        for k, q in queries.items():
-            raw[f"{svc}_{k}"] = _prom(q.format(s=svc))
+    if not _is_prometheus_up():
+        # Fast response when Prometheus is unreachable/starting up
+        for svc in SERVICES:
+            for k in queries.keys():
+                raw[f"{svc}_{k}"] = 1.0 if k == "service_up" else 0.0
+    else:
+        for svc in SERVICES:
+            for k, q in queries.items():
+                raw[f"{svc}_{k}"] = _prom(q.format(s=svc))
 
     err_vals = [raw.get(f"{s}_error_rate_5xx", 0.0) for s in SERVICES]
     p99_vals = [raw.get(f"{s}_p99_latency_s",  0.0) for s in SERVICES]

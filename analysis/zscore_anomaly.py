@@ -60,13 +60,13 @@ def compute_zscores(df: pd.DataFrame, threshold: float = 3.0) -> pd.DataFrame:
 
 
 def summarise(result: pd.DataFrame, threshold: float) -> str:
-    lines = ["Z-Score Anomaly Detection — Summary", "=" * 50]
+    lines = ["Z-Score Anomaly Detection - Summary", "=" * 50]
 
     total     = len(result)
     anomalies = result["anomaly"].sum()
     lines.append(f"Total rows    : {total}")
     lines.append(f"Anomalies     : {anomalies}  ({100*anomalies/total:.1f}%)")
-    lines.append(f"Threshold     : ±{threshold} σ\n")
+    lines.append(f"Threshold     : +/-{threshold} sigma\n")
 
     lines.append("Anomaly detection per scenario:")
     grp = result.groupby("scenario").agg(
@@ -105,14 +105,14 @@ def main(input_path: str, threshold: float):
     # Save enriched dataset
     out_csv = os.path.join(OUTPUT_DIR, "zscore_results.csv")
     result.to_csv(out_csv, index=False)
-    print(f"Z-score results → {out_csv}")
+    print(f"Z-score results -> {out_csv}")
 
     # Save summary
     summary = summarise(result, threshold)
     out_txt = os.path.join(OUTPUT_DIR, "anomaly_summary.txt")
-    with open(out_txt, "w") as f:
+    with open(out_txt, "w", encoding="utf-8") as f:
         f.write(summary)
-    print(f"Summary         → {out_txt}")
+    print(f"Summary         -> {out_txt}")
     print("\n" + summary)
 
 
