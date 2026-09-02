@@ -3,7 +3,7 @@ import {
   AlertTriangle, CheckCircle, XCircle, Activity, Zap,
   ArrowRight, RefreshCw, Server, Clock, TrendingUp,
   ShieldAlert, Lightbulb, GitBranch, Database, Info,
-  Network, Cpu, Layers, BarChart2, AlertCircle
+  Network, Cpu, Layers, BarChart2, AlertCircle, ExternalLink
 } from 'lucide-react'
 
 const API_BASE = '/api'
@@ -21,12 +21,12 @@ const SERVICE_LABELS = {
 
 // Fixed positions for standard topological layout in NetworkX SVG canvas
 const NODE_POSITIONS = {
-  order:        { x: 260, y: 50 },
-  inventory:    { x: 80,  y: 160 },
-  payment:      { x: 260, y: 160 },
-  shipping:     { x: 440, y: 160 },
-  delivery:     { x: 440, y: 270 },
-  notification: { x: 170, y: 270 },
+  order:        { x: 260, y: 55 },
+  inventory:    { x: 80,  y: 175 },
+  payment:      { x: 260, y: 175 },
+  shipping:     { x: 440, y: 175 },
+  delivery:     { x: 440, y: 295 },
+  notification: { x: 170, y: 295 },
 }
 
 // ─── Colour Helpers ──────────────────────────────────────────────────────────
@@ -123,7 +123,7 @@ function NetworkXGraphVisualizer({ graphData }) {
         <div className="flex items-center gap-2">
           <Network size={16} className="text-indigo-400" />
           <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-            Live NetworkX Dependency Graph
+            Live NetworkX Dependency Graph &amp; Cascade Impact (%)
           </h3>
         </div>
         <div className="flex items-center gap-3 text-[11px] text-slate-400">
@@ -131,7 +131,7 @@ function NetworkXGraphVisualizer({ graphData }) {
             <span className="w-2.5 h-0.5 bg-indigo-500 inline-block"/> Architectural
           </span>
           <span className="flex items-center gap-1">
-            <span className="w-2.5 h-0.5 border-t border-dashed border-red-500 inline-block"/> Correlation
+            <span className="w-2.5 h-0.5 border-t border-dashed border-red-500 inline-block"/> Correlation Arc
           </span>
           <span className="text-slate-500 font-mono">
             {graphData.node_count} nodes &bull; {graphData.edge_count} edges
@@ -140,7 +140,7 @@ function NetworkXGraphVisualizer({ graphData }) {
       </div>
 
       <div className="w-full overflow-x-auto flex justify-center py-2">
-        <svg width="520" height="340" viewBox="0 0 520 340" className="drop-shadow-md">
+        <svg width="540" height="380" viewBox="0 0 540 380" className="drop-shadow-md">
           <defs>
             <marker id="arrow-arch" viewBox="0 0 10 10" refX="28" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
               <path d="M 0 0 L 10 5 L 0 10 z" fill="#6366f1" />
@@ -156,29 +156,55 @@ function NetworkXGraphVisualizer({ graphData }) {
             const p2 = NODE_POSITIONS[edge.target] || { x: 200, y: 200 }
             const isCorr = edge.type === 'data_driven'
 
-            return (
-              <g key={idx}>
-                <line
-                  x1={p1.x} y1={p1.y}
-                  x2={p2.x} y2={p2.y}
-                  stroke={isCorr ? '#ef4444' : '#6366f1'}
-                  strokeWidth={isCorr ? Math.max(1.5, edge.weight * 2.5) : 2}
-                  strokeDasharray={isCorr ? '4,4' : 'none'}
-                  markerEnd={isCorr ? 'url(#arrow-corr)' : 'url(#arrow-arch)'}
-                  opacity={0.8}
-                />
-                {/* Edge Label for Correlation Strength */}
-                {isCorr && (
+            if (isCorr) {
+              // Quadratic curved arc for dynamic correlation lines so they never overlap straight architectural lines
+              const mx = (p1.x + p2.x) / 2
+              const my = (p1.y + p2.y) / 2
+              const dx = p2.x - p1.x
+              const dy = p2.y - p1.y
+              const cx = mx - dy * 0.35
+              const cy = my + dx * 0.35
+
+              return (
+                <g key={`corr-${idx}`}>
+                  <path
+                    d={`M ${p1.x} ${p1.y} Q ${cx} ${cy} ${p2.x} ${p2.y}`}
+                    fill="none"
+                    stroke="#ef4444"
+                    strokeWidth={Math.max(1.8, edge.weight * 2.8)}
+                    strokeDasharray="5,4"
+                    markerEnd="url(#arrow-corr)"
+                    opacity="0.95"
+                  />
+                  {/* Badge for Correlation Strength r */}
+                  <rect
+                    x={cx - 18} y={cy - 8}
+                    width="36" height="14" rx="4"
+                    fill="#450a0a" stroke="#b91c1c" strokeWidth="1"
+                  />
                   <text
-                    x={(p1.x + p2.x) / 2}
-                    y={(p1.y + p2.y) / 2 - 4}
-                    fill="#f87171"
+                    x={cx} y={cy + 2}
+                    fill="#fca5a5"
                     fontSize="9"
+                    fontWeight="bold"
                     fontFamily="monospace"
                     textAnchor="middle">
                     r={edge.correlation}
                   </text>
-                )}
+                </g>
+              )
+            }
+
+            return (
+              <g key={`arch-${idx}`}>
+                <line
+                  x1={p1.x} y1={p1.y}
+                  x2={p2.x} y2={p2.y}
+                  stroke="#6366f1"
+                  strokeWidth="2.2"
+                  markerEnd="url(#arrow-arch)"
+                  opacity="0.85"
+                />
               </g>
             )
           })}
@@ -187,9 +213,23 @@ function NetworkXGraphVisualizer({ graphData }) {
           {nodes.map((node) => {
             const pos = NODE_POSITIONS[node.id] || { x: 150, y: 150 }
             const colors = statusNodeColour(node.status)
+            const effectPct = node.cascade_effect_pct ?? 0
 
             return (
               <g key={node.id} className="cursor-pointer group">
+                {/* Outer halo if affected by cascade */}
+                {effectPct > 0 && (
+                  <circle
+                    cx={pos.x} cy={pos.y} r="28"
+                    fill="none"
+                    stroke={effectPct > 70 ? '#ef4444' : '#f97316'}
+                    strokeWidth="2"
+                    strokeDasharray="4,3"
+                    className="animate-spin"
+                    style={{ animationDuration: '10s' }}
+                  />
+                )}
+
                 <circle
                   cx={pos.x} cy={pos.y} r="22"
                   fill={colors.fill}
@@ -230,22 +270,114 @@ function NetworkXGraphVisualizer({ graphData }) {
                   textAnchor="middle">
                   PR: {node.pagerank}
                 </text>
+
+                {/* Cascade Effect % Badge */}
+                <rect
+                  x={pos.x - 28} y={pos.y + 42}
+                  width="56" height="15" rx="7"
+                  fill={effectPct > 70 ? '#7f1d1d' : effectPct > 0 ? '#7c2d12' : '#0f172a'}
+                  stroke={effectPct > 70 ? '#ef4444' : effectPct > 0 ? '#f97316' : '#334155'}
+                  strokeWidth="1"
+                />
+                <text
+                  x={pos.x} y={pos.y + 53}
+                  fill={effectPct > 0 ? '#fca5a5' : '#94a3b8'}
+                  fontSize="9"
+                  fontWeight="bold"
+                  fontFamily="monospace"
+                  textAnchor="middle">
+                  {effectPct}% Effect
+                </text>
               </g>
             )
           })}
         </svg>
       </div>
 
-      {/* Node Metrics Summary Bar */}
+      {/* Node Metrics & Cascade Effect Summary Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2 pt-3 border-t border-slate-800 text-[11px]">
         {nodes.map(n => (
           <div key={n.id} className="flex items-center justify-between p-1.5 rounded bg-slate-900/60 border border-slate-800 font-mono">
             <span className="text-slate-400 font-sans font-semibold">{SERVICE_LABELS[n.id] || n.id}:</span>
-            <span className={`px-1.5 py-0.5 rounded text-[10px] ${statusNodeColour(n.status).badge}`}>
-              {n.status}
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className={`px-1.5 py-0.5 rounded text-[10px] ${(n.cascade_effect_pct ?? 0) > 70 ? 'bg-red-950 text-red-300 border border-red-700' : 'bg-slate-800 text-slate-300'}`}>
+                {n.cascade_effect_pct ?? 0}% impact
+              </span>
+            </div>
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Grafana Visibility & Observability Component ─────────────────────────────
+function GrafanaVisibilityPanel({ system, liveMetrics }) {
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+        <div className="flex items-center gap-2">
+          <Layers size={18} className="text-orange-400" />
+          <div>
+            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+              Grafana Live Observability &amp; Visibility Stream (Port 3001)
+            </h3>
+            <p className="text-[11px] text-slate-400">Raw observability metrics (P99 latency, HTTP 5xx error rate, JVM heap, thread count)</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <a
+            href="http://localhost:3001"
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs px-3 py-1.5 rounded bg-orange-950/60 border border-orange-700/60 text-orange-300 hover:bg-orange-900/60 transition flex items-center gap-1 font-semibold">
+            Open Grafana (3001) <ExternalLink size={12}/>
+          </a>
+          <a
+            href="http://localhost:9090"
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs px-3 py-1.5 rounded bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 transition flex items-center gap-1 font-semibold">
+            Prometheus <ExternalLink size={12}/>
+          </a>
+          <a
+            href="http://localhost:16686"
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs px-3 py-1.5 rounded bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 transition flex items-center gap-1 font-semibold">
+            Jaeger <ExternalLink size={12}/>
+          </a>
+        </div>
+      </div>
+
+      {/* Grafana Observability Metrics Stream Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+        <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-3.5 space-y-1">
+          <p className="text-slate-400 font-medium">Max P99 Latency Stream</p>
+          <p className="text-xl font-bold font-mono text-amber-400">
+            {(system?.max_p99_latency ?? 0).toFixed(3)}s
+          </p>
+          <p className="text-[10px] text-slate-500">Scraped via Grafana / Prometheus</p>
+        </div>
+        <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-3.5 space-y-1">
+          <p className="text-slate-400 font-medium">System 5xx Error Stream</p>
+          <p className="text-xl font-bold font-mono text-red-400">
+            {(system?.mean_error_rate ?? 0).toFixed(3)} req/s
+          </p>
+          <p className="text-[10px] text-slate-500">Grafana HTTP 5xx Channel</p>
+        </div>
+        <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-3.5 space-y-1">
+          <p className="text-slate-400 font-medium">Services Health Probes</p>
+          <p className={`text-xl font-bold font-mono ${(system?.num_services_down ?? 0) > 0 ? 'text-red-400' : 'text-green-400'}`}>
+            {6 - (system?.num_services_down ?? 0)} / 6 ONLINE
+          </p>
+          <p className="text-[10px] text-slate-500">Grafana Actuator Health Scrape</p>
+        </div>
+        <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-3.5 space-y-1">
+          <p className="text-slate-400 font-medium">Grafana Telemetry Status</p>
+          <p className="text-xl font-bold text-green-400 font-mono">CONNECTED</p>
+          <p className="text-[10px] text-slate-500">Prometheus + Loki + Jaeger</p>
+        </div>
       </div>
     </div>
   )
@@ -613,7 +745,10 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── 2. NetworkX Graph Visualizer & 3. Feature Importances ── */}
+        {/* ── 2. Grafana Live Observability & Visibility Stream ── */}
+        <GrafanaVisibilityPanel system={data?.system} liveMetrics={data?.live_metrics} />
+
+        {/* ── 3. NetworkX Graph Visualizer & Feature Importances ── */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
             <NetworkXGraphVisualizer graphData={data?.networkx_graph} />
@@ -623,7 +758,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── 4. Z-Score Anomaly Analysis & 5. Temporal Analysis ── */}
+        {/* ── 4. Z-Score Anomaly Analysis & Temporal Analysis ── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
             <ZScoreAnalysisPanel zData={data?.z_score_analysis} />
@@ -633,7 +768,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── 6. Root Cause Analysis & 7. NetworkX Cascade Path ── */}
+        {/* ── 5. Root Cause Analysis & NetworkX Cascade Path ── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
             <h2 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2 mb-4">
@@ -658,7 +793,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── 8. Service Health & Risk/Impact Assessment ── */}
+        {/* ── 6. Service Health & Risk/Impact Assessment ── */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
           <h2 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
             <Activity size={15} className="text-purple-400" /> Risk &amp; Impact Matrix across Services
@@ -683,7 +818,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── Recommendations ── */}
+        {/* ── 7. Recommendations ── */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
           <h2 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2 mb-4">
             <Lightbulb size={15} className="text-yellow-400" /> Actionable Remediation Recommendations

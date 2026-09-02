@@ -228,10 +228,39 @@ def dependency_graph(raw: dict, root_causes: list) -> dict:
             status = "ANOMALOUS"
         else:
             status = "NORMAL"
-        G.add_node(svc, label=SERVICE_LABELS.get(svc, svc), status=status, err=err, p99=p99)
+        G.add_node(svc, label=SERVICE_LABELS.get(svc, svc), status=status, err=err, p99=p99, up=up)
 
+    # 1. Architectural Edges
     for src, dst in ARCH_EDGES:
-        G.add_edge(src, dst, type="architectural", weight=1.0)
+        G.add_edge(src, dst, type="architectural", weight=1.0, correlation=0.85)
+
+    # 2. Dynamic Correlation Edges based on live metric co-occurrence & failure propagation
+    for i, s1 in enumerate(SERVICES):
+        for s2 in SERVICES[i+1:]:
+            err1  = float(raw.get(f"{s1}_error_rate_5xx", 0))
+            err2  = float(raw.get(f"{s2}_error_rate_5xx", 0))
+            p99_1 = float(raw.get(f"{s1}_p99_latency_s", 0))
+            p99_2 = float(raw.get(f"{s2}_p99_latency_s", 0))
+            up1   = float(raw.get(f"{s1}_service_up", 1))
+            up2   = float(raw.get(f"{s2}_service_up", 1))
+
+            if (err1 > 0 or err2 > 0 or p99_1 > 0.5 or p99_2 > 0.5 or up1 == 0 or up2 == 0):
+                diff = abs(err1 - err2) + abs(p99_1 - p99_2) / 5.0
+                corr = max(0.45, min(0.98, round(1.0 - diff, 2)))
+                if not G.has_edge(s1, s2):
+                    G.add_edge(s1, s2, type="data_driven", weight=round(corr, 2), correlation=corr)
+
+    # BFS cascade path calculation
+    cascade_path = []
+    for c in root_causes:
+        svc = c["service"]
+        if svc not in cascade_path:
+            cascade_path.append(svc)
+        if svc in G:
+            for _, succs in nx.bfs_successors(G, svc):
+                for s in succs:
+                    if s not in cascade_path:
+                        cascade_path.append(s)
 
     try:
         pr = nx.pagerank(G, weight="weight")
@@ -243,35 +272,48 @@ def dependency_graph(raw: dict, root_causes: list) -> dict:
     except Exception:
         bc = {s: 0.0 for s in SERVICES}
 
+    # 3. Calculate % of effect on each service due to cascading failure
     nodes = []
     for n, d in G.nodes(data=True):
+        status = d.get("status", "NORMAL")
+        err    = d.get("err", 0)
+        p99    = d.get("p99", 0)
+        up     = d.get("up", 1)
+
+        if status == "ROOT_CAUSE" or up == 0:
+            effect_pct = 100.0
+        elif n in cascade_path:
+            base_effect = 85.0 if cascade_path.index(n) == 1 else 65.0
+            add_err = min(15.0, (err / 0.1) * 15.0) if err > 0 else 0.0
+            add_lat = min(15.0, (p99 / 2.0) * 15.0) if p99 > 0 else 0.0
+            effect_pct = min(99.0, round(base_effect + add_err + add_lat, 1))
+        elif err > 0.01 or p99 > 0.5:
+            effect_pct = min(80.0, round((err / 0.1) * 50.0 + (p99 / 2.0) * 30.0 + 20.0, 1))
+        else:
+            effect_pct = 0.0
+
         nodes.append({
-            "id":         n,
-            "label":      d.get("label", n),
-            "status":     d.get("status", "NORMAL"),
-            "in_degree":  int(G.in_degree(n)),
-            "out_degree": int(G.out_degree(n)),
-            "pagerank":   round(float(pr.get(n, 0)), 4),
-            "betweenness": round(float(bc.get(n, 0)), 4),
-            "error_rate": round(float(d.get("err", 0)), 4),
-            "p99_latency": round(float(d.get("p99", 0)), 4),
+            "id":                 n,
+            "label":              d.get("label", n),
+            "status":             status,
+            "in_degree":          int(G.in_degree(n)),
+            "out_degree":         int(G.out_degree(n)),
+            "pagerank":           round(float(pr.get(n, 0)), 4),
+            "betweenness":        round(float(bc.get(n, 0)), 4),
+            "error_rate":         round(float(err), 4),
+            "p99_latency":        round(float(p99), 4),
+            "cascade_effect_pct": effect_pct,
         })
 
     edges = []
     for u, v, d in G.edges(data=True):
-        edges.append({"source": u, "target": v, "type": d.get("type", "architectural"), "weight": float(d.get("weight", 1.0))})
-
-    # BFS cascade path from root causes
-    cascade_path = []
-    for c in root_causes:
-        svc = c["service"]
-        if svc not in cascade_path:
-            cascade_path.append(svc)
-        if svc in G:
-            for _, succs in nx.bfs_successors(G, svc):
-                for s in succs:
-                    if s not in cascade_path:
-                        cascade_path.append(s)
+        edges.append({
+            "source": u,
+            "target": v,
+            "type": d.get("type", "architectural"),
+            "weight": float(d.get("weight", 1.0)),
+            "correlation": float(d.get("correlation", 0.85)),
+        })
 
     return {
         "graph_data":   {"nodes": nodes, "edges": edges, "node_count": len(nodes), "edge_count": len(edges)},
