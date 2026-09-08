@@ -164,6 +164,7 @@ services:
     environment:
       <<: *common-env
       SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/inventory_db?retryWrites=true&w=majority&appName=Cluster0"
+      JWT_SECRET: "${JWT_SECRET:-cascade-failure-prediction-super-secret-key-2024-min32chars}"
     depends_on:
       - jaeger
       - prometheus
@@ -239,6 +240,8 @@ services:
       SERVICE_PAYMENT_URL: "http://payment-service:8082"
       SERVICE_SHIPPING_URL: "http://shipping-service:8084"
       SERVICE_NOTIFICATION_URL: "http://notification-service:8086"
+      JWT_SECRET: "${JWT_SECRET:-cascade-failure-prediction-super-secret-key-2024-min32chars}"
+      JWT_EXPIRATION_MS: "${JWT_EXPIRATION_MS:-86400000}"
     depends_on:
       inventory-service:
         condition: service_healthy
@@ -272,6 +275,7 @@ services:
       SERVICE_SHIPPING_URL: "http://shipping-service:8084"
       SERVICE_DELIVERY_URL: "http://delivery-service:8085"
       SERVICE_NOTIFICATION_URL: "http://notification-service:8086"
+      JWT_SECRET: "${JWT_SECRET:-cascade-failure-prediction-super-secret-key-2024-min32chars}"
     depends_on:
       order-service:
         condition: service_healthy

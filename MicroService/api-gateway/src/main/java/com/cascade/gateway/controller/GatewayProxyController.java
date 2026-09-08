@@ -45,6 +45,8 @@ public class GatewayProxyController {
             "/shipping/**", "/shipments/**",
             "/delivery/**", "/deliveries/**",
             "/notification/**", "/notifications/**",
+            // Auth endpoints — proxied to order-service where JWT is issued
+            "/auth/**",
             // Fault-injection control endpoints (proxied per target service)
             // Usage: POST /fault/{service}/configure  e.g. /fault/order-service/configure
             // The gateway strips the service prefix and forwards /fault/configure to the right service
@@ -120,6 +122,9 @@ public class GatewayProxyController {
 
     private String getTargetServiceUrl(String uri) {
         if (uri.startsWith("/order")) {
+            return orderServiceUrl;
+        } else if (uri.startsWith("/auth")) {
+            // Auth is handled by order-service (where JWT is issued)
             return orderServiceUrl;
         } else if (uri.startsWith("/payment")) {
             return paymentServiceUrl;
