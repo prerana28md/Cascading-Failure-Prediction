@@ -117,6 +117,9 @@ services:
     container_name: notification-service
     ports:
       - "8086:8086"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       <<: *common-env
       SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/notification_db?retryWrites=true&w=majority&appName=Cluster0"
@@ -139,6 +142,9 @@ services:
     container_name: delivery-service
     ports:
       - "8085:8085"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       <<: *common-env
       SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/delivery_db?retryWrites=true&w=majority&appName=Cluster0"
@@ -161,6 +167,9 @@ services:
     container_name: inventory-service
     ports:
       - "8083:8083"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       <<: *common-env
       SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/inventory_db?retryWrites=true&w=majority&appName=Cluster0"
@@ -184,6 +193,9 @@ services:
     container_name: payment-service
     ports:
       - "8082:8082"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       <<: *common-env
       SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/payment_db?retryWrites=true&w=majority&appName=Cluster0"
@@ -207,6 +219,9 @@ services:
     container_name: shipping-service
     ports:
       - "8084:8084"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       <<: *common-env
       SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/shipping_db?retryWrites=true&w=majority&appName=Cluster0"
@@ -233,6 +248,9 @@ services:
     container_name: order-service
     ports:
       - "8081:8081"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       <<: *common-env
       SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/order_db?retryWrites=true&w=majority&appName=Cluster0"
@@ -267,6 +285,9 @@ services:
     container_name: api-gateway
     ports:
       - "8080:8080"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       <<: *common-env
       SERVICE_ORDER_URL: "http://order-service:8081"
@@ -323,3 +344,8 @@ volumes:
 networks:
   cascade-net:
     driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
