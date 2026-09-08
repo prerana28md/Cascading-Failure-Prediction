@@ -71,7 +71,36 @@ SLA_TARGETS = {
 }
 
 HISTORY        = deque(maxlen=30)   # keep 30 polls (~4 min at 8s interval)
-INCIDENT_LOG   = deque(maxlen=100)  # rolling incident feed
+INCIDENT_LOG   = deque(maxlen=200)  # rolling incident feed (persisted to disk)
+
+# Path to persist incident log across restarts
+INCIDENT_LOG_PATH = os.path.join(os.path.dirname(__file__), "incident_log.json")
+
+# Track last recommendation fingerprint per service to suppress duplicates
+_last_rec_fingerprint: dict = {}   # service -> (reason, category) last seen
+
+
+def _load_incident_log():
+    """Load persisted incident log from disk on startup."""
+    global INCIDENT_LOG
+    if os.path.exists(INCIDENT_LOG_PATH):
+        try:
+            with open(INCIDENT_LOG_PATH, "r") as f:
+                saved = json.load(f)
+            for entry in saved[-200:]:
+                INCIDENT_LOG.append(entry)
+            print(f"[INFO] Loaded {len(INCIDENT_LOG)} incidents from disk")
+        except Exception as e:
+            print(f"[WARN] Could not load incident log: {e}")
+
+
+def _save_incident_log():
+    """Persist incident log to disk."""
+    try:
+        with open(INCIDENT_LOG_PATH, "w") as f:
+            json.dump(list(INCIDENT_LOG), f, indent=2)
+    except Exception as e:
+        print(f"[WARN] Could not save incident log: {e}")
 
 # ── Model (loaded lazily) ─────────────────────────────────────────────────────
 _model    = None
@@ -443,17 +472,31 @@ def root_cause(raw: dict) -> list:
 
 def structured_recommendations(causes: list, raw: dict, risk_level: str, sla: dict) -> list:
     """
-    Returns a list of structured recommendation objects with:
-      priority    : 1 (highest) – N
-      severity    : CRITICAL | HIGH | MEDIUM | LOW
-      category    : IMMEDIATE | SHORT_TERM | PREVENTIVE
-      service     : service key or 'system'
-      title       : short action title
-      description : full descriptive text
-      command     : optional shell/docker command
+    Returns structured recommendation objects. Deduplicates: same recommendation
+    is not repeated on consecutive polls while the same fault is still active.
+    A '_repeat' flag is set so the frontend can dim/hide already-seen recs.
     """
-    recs = []
+    global _last_rec_fingerprint
+    recs     = []
     priority = 1
+    new_fps  = {}
+
+    def _add(severity, category, service, title, description, command=None):
+        nonlocal priority
+        fp_key = (service, title[:50])
+        new_fps[fp_key] = True
+        rec = {
+            "priority":    priority,
+            "severity":    severity,
+            "category":    category,
+            "service":     service,
+            "title":       title,
+            "description": description,
+            "command":     command,
+            "_repeat":     bool(_last_rec_fingerprint.get(fp_key)),
+        }
+        recs.append(rec)
+        priority += 1
 
     # ── Per root-cause recommendations ────────────────────────────────────────
     for c in causes:
@@ -461,199 +504,158 @@ def structured_recommendations(causes: list, raw: dict, risk_level: str, sla: di
         label = SERVICE_LABELS.get(svc, svc)
 
         if c["reason"] == "SERVICE_DOWN":
-            recs.append({
-                "priority":    priority,
-                "severity":    "CRITICAL",
-                "category":    "IMMEDIATE",
-                "service":     svc,
-                "title":       f"Restart {label} — returning HTTP 503",
-                "description": (
-                    f"{label} is completely DOWN (service_up=0). All upstream callers "
-                    f"({', '.join(s for s, t in [('Order', 'order'),('Payment','payment'),('Shipping','shipping')] if t != svc)}) "
-                    f"are accumulating errors. Immediate restart required."
-                ),
-                "command":     f"docker restart {svc}-service",
-            })
-            priority += 1
-            recs.append({
-                "priority":    priority,
-                "severity":    "CRITICAL",
-                "category":    "IMMEDIATE",
-                "service":     svc,
-                "title":       f"Inspect {label} crash logs",
-                "description": (
-                    f"Check recent logs to determine crash reason: OOM, DB connection timeout, or port conflict. "
-                    f"Look for FATAL or ERROR lines in the last 100 lines."
-                ),
-                "command":     f"docker logs {svc}-service --tail 100 | grep -E 'ERROR|FATAL|Exception'",
-            })
-            priority += 1
+            _add(
+                "CRITICAL", "IMMEDIATE", svc,
+                f"Restart {label} — returning HTTP 503",
+                f"{label} is completely DOWN (service_up=0). All upstream callers are "
+                f"accumulating errors. Immediate restart required.",
+                f"docker restart {svc}-service",
+            )
+            _add(
+                "CRITICAL", "IMMEDIATE", svc,
+                f"Inspect {label} crash logs",
+                f"Check recent logs for crash reason (OOM, DB timeout, port conflict). "
+                f"Look for FATAL/ERROR lines in the last 100 lines.",
+                f"docker logs {svc}-service --tail 100",
+            )
 
         elif c["reason"] == "HIGH_ERROR_RATE":
-            err_pct = round(c["value"] * 100, 2)
-            sla_max = SLA_TARGETS[svc]["max_error_rate"]
+            sla_max         = SLA_TARGETS[svc]["max_error_rate"]
             budget_consumed = round((c["value"] / max(sla_max, 1e-6)) * 100, 1)
-            recs.append({
-                "priority":    priority,
-                "severity":    "HIGH",
-                "category":    "IMMEDIATE",
-                "service":     svc,
-                "title":       f"{label} error rate exceeds SLA threshold",
-                "description": (
-                    f"Current error rate: {c['value']:.4f} req/s ({budget_consumed}% of SLA error budget consumed). "
-                    f"SLA limit: {sla_max} req/s. "
-                    f"Check MongoDB Atlas connectivity, validate that downstream dependencies are healthy, "
-                    f"and review recent deployments for breaking changes."
-                ),
-                "command":     f"docker logs {svc}-service --tail 50 | grep -E '5[0-9][0-9]|ERROR|timeout'",
-            })
-            priority += 1
-            recs.append({
-                "priority":    priority,
-                "severity":    "HIGH",
-                "category":    "SHORT_TERM",
-                "service":     svc,
-                "title":       f"Add circuit breaker for {label}",
-                "description": (
-                    f"Prevent cascading failures by wrapping {label} calls with Resilience4j circuit breaker. "
-                    f"Open the circuit when error rate exceeds {sla_max * 100:.1f}% to stop propagation."
-                ),
-                "command":     None,
-            })
-            priority += 1
+            _add(
+                "HIGH", "IMMEDIATE", svc,
+                f"{label} error rate exceeds SLA threshold",
+                f"Current error rate: {c['value']:.4f} req/s ({budget_consumed}% of SLA error "
+                f"budget consumed). SLA limit: {sla_max} req/s. Check MongoDB Atlas connectivity "
+                f"and review recent deployments for breaking changes.",
+                f"docker logs {svc}-service --tail 50",
+            )
+            _add(
+                "HIGH", "SHORT_TERM", svc,
+                f"Add circuit breaker for {label}",
+                f"Prevent cascading failures by wrapping {label} calls with a Resilience4j "
+                f"circuit breaker. Open the circuit when error rate exceeds {sla_max * 100:.1f}% "
+                f"to stop propagation to upstream services.",
+                None,
+            )
 
         elif c["reason"] == "HIGH_LATENCY":
-            sla_max = SLA_TARGETS[svc]["max_p99_s"]
+            sla_max         = SLA_TARGETS[svc]["max_p99_s"]
             budget_consumed = round((c["value"] / max(sla_max, 1e-6)) * 100, 1)
-            recs.append({
-                "priority":    priority,
-                "severity":    "MEDIUM",
-                "category":    "IMMEDIATE",
-                "service":     svc,
-                "title":       f"{label} P99 latency exceeds SLA budget",
-                "description": (
-                    f"P99 latency: {c['value']:.3f}s — {budget_consumed}% of the {sla_max}s SLA budget consumed. "
-                    f"Primary causes: missing DB indexes, N+1 query patterns, or JVM GC pressure. "
-                    f"Check active thread count and MongoDB slow query logs."
-                ),
-                "command":     f"docker exec {svc}-service jcmd 1 Thread.print | grep -c BLOCKED",
-            })
-            priority += 1
+            _add(
+                "MEDIUM", "IMMEDIATE", svc,
+                f"{label} P99 latency exceeds SLA budget",
+                f"P99 latency: {c['value']:.3f}s — {budget_consumed}% of the {sla_max}s SLA "
+                f"budget consumed. Primary causes: missing DB indexes, N+1 query patterns, or "
+                f"JVM GC pressure. Check active thread count and MongoDB slow query logs.",
+                f"docker exec {svc}-service jcmd 1 Thread.print",
+            )
 
-    # ── SLA breach recommendations ─────────────────────────────────────────────
+    # ── SLA breach recommendations (services not already in root causes) ──────
+    cause_svcs   = {c["service"] for c in causes}
     sla_services = sla.get("services", {})
     for svc, sla_info in sla_services.items():
-        if not sla_info["sla_compliant"] and svc not in {c["service"] for c in causes}:
+        if not sla_info["sla_compliant"] and svc not in cause_svcs:
             label = SERVICE_LABELS.get(svc, svc)
             for breach in sla_info["breaches"]:
-                recs.append({
-                    "priority":    priority,
-                    "severity":    "MEDIUM",
-                    "category":    "SHORT_TERM",
-                    "service":     svc,
-                    "title":       f"SLA breach: {label} — {breach['type'].replace('_', ' ').title()}",
-                    "description": breach["message"],
-                    "command":     None,
-                })
-                priority += 1
+                _add(
+                    "MEDIUM", "SHORT_TERM", svc,
+                    f"SLA breach: {label} — {breach['type'].replace('_', ' ').title()}",
+                    breach["message"],
+                    None,
+                )
 
-    # ── System-level recommendations for HIGH/CRITICAL ────────────────────────
+    # ── System-level recommendations for HIGH / CRITICAL ─────────────────────
     if risk_level in ("HIGH", "CRITICAL"):
-        recs.append({
-            "priority":    priority,
-            "severity":    "HIGH",
-            "category":    "IMMEDIATE",
-            "service":     "system",
-            "title":       "Activate upstream circuit breakers across call chain",
-            "description": (
-                f"System risk is {risk_level}. Cascade propagation is in progress across the service mesh. "
-                f"Activate Resilience4j circuit breakers on all services that call into failing services. "
-                f"The cascade path is: Order → Inventory → Payment → Shipping → Delivery → Notification."
-            ),
-            "command":     "curl -X POST http://localhost:8080/actuator/circuitbreakers/open",
-        })
-        priority += 1
+        _add(
+            "HIGH", "IMMEDIATE", "system",
+            "Activate upstream circuit breakers across call chain",
+            f"System risk is {risk_level}. Cascade propagation is in progress. Activate "
+            f"Resilience4j circuit breakers on all services calling into failing services. "
+            f"Call chain: Order → Inventory → Payment → Shipping → Delivery → Notification.",
+            "curl -X POST http://localhost:8080/actuator/circuitbreakers/open",
+        )
 
     if risk_level == "CRITICAL":
-        recs.append({
-            "priority":    priority,
-            "severity":    "CRITICAL",
-            "category":    "IMMEDIATE",
-            "service":     "system",
-            "title":       "Initiate disaster recovery runbook",
-            "description": (
-                "CRITICAL cascade failure detected. Immediately escalate to on-call engineer. "
-                "Consider enabling read-only mode for the frontend to prevent new orders until "
-                "services stabilise. Check MongoDB Atlas cluster health dashboard."
-            ),
-            "command":     None,
-        })
-        priority += 1
+        _add(
+            "CRITICAL", "IMMEDIATE", "system",
+            "Initiate disaster recovery runbook",
+            "CRITICAL cascade failure detected. Escalate to on-call engineer immediately. "
+            "Consider enabling read-only mode on the frontend to prevent new orders until "
+            "services stabilise. Check MongoDB Atlas cluster health dashboard.",
+            None,
+        )
 
     # ── Preventive recommendations when system is healthy ────────────────────
     if not causes:
-        recs.append({
-            "priority":    1,
-            "severity":    "LOW",
-            "category":    "PREVENTIVE",
-            "service":     "system",
-            "title":       "All services operating within normal thresholds",
-            "description": (
-                "No anomalies detected. Consider running a chaos experiment to validate resilience: "
-                "inject a latency spike on inventory-service and observe propagation detection time."
-            ),
-            "command":     "curl -X POST http://localhost:8080/fault/inventory-service/configure -H 'Content-Type: application/json' -d '{\"type\":\"latency\",\"delayMs\":2000}'",
-        })
-        recs.append({
-            "priority":    2,
-            "severity":    "LOW",
-            "category":    "PREVENTIVE",
-            "service":     "system",
-            "title":       "Review and tighten SLA targets",
-            "description": (
-                "System is healthy. Review current SLA targets against the last 7 days of Grafana dashboard data. "
-                "Consider tightening P99 latency budgets to improve early-warning sensitivity."
-            ),
-            "command":     None,
-        })
+        _add(
+            "LOW", "PREVENTIVE", "system",
+            "All services operating within normal thresholds",
+            "No anomalies detected. Consider running a chaos experiment to validate resilience: "
+            "inject a latency spike on inventory-service and observe propagation detection time.",
+            "curl -X POST http://localhost:8080/fault/inventory-service/configure "
+            "-H \"Content-Type: application/json\" -d '{\"fault\":\"LATENCY\",\"delayMs\":2000}'",
+        )
+        _add(
+            "LOW", "PREVENTIVE", "system",
+            "Review and tighten SLA targets",
+            "System is healthy. Review current SLA targets against the last 7 days of Grafana "
+            "dashboard data. Consider tightening P99 latency budgets for earlier warning detection.",
+            None,
+        )
 
+    # Update fingerprint for next cycle
+    _last_rec_fingerprint = new_fps
     return recs
 
 
 def _append_incident(raw: dict, causes: list, risk_level: str):
-    """Append anomalies to the rolling incident log."""
-    ts = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
-    for c in causes:
-        svc   = c["service"]
-        label = SERVICE_LABELS.get(svc, svc)
-        INCIDENT_LOG.appendleft({
-            "ts":      ts,
-            "service": svc,
-            "label":   label,
-            "reason":  c["reason"],
-            "value":   c.get("value"),
-            "metric":  c.get("metric"),
-            "risk_level": risk_level,
-            "id":      int(time.time() * 1000),
-        })
-    # Auto-resolve: add a RESOLVED event if the service was previously in incident log but now has no cause
+    """Append anomalies to the rolling incident log with full datetime. Deduplicates consecutive identical events."""
+    now = time.localtime()
+    ts  = time.strftime("%Y-%m-%d %H:%M:%S", now)   # full date + time
+    day = time.strftime("%Y-%m-%d", now)
+
     cause_svcs = {c["service"] for c in causes}
+
+    for c in causes:
+        svc    = c["service"]
+        reason = c["reason"]
+
+        # Deduplicate: skip if the most recent event for this service has same reason
+        last_for_svc = next((e for e in INCIDENT_LOG if e["service"] == svc), None)
+        if last_for_svc and last_for_svc.get("reason") == reason:
+            continue  # same fault still active — don't flood the log
+
+        INCIDENT_LOG.appendleft({
+            "ts":         ts,
+            "date":       day,
+            "service":    svc,
+            "label":      SERVICE_LABELS.get(svc, svc),
+            "reason":     reason,
+            "value":      c.get("value"),
+            "metric":     c.get("metric"),
+            "risk_level": risk_level,
+            "id":         int(time.time() * 1000),
+        })
+
+    # Auto-resolve: service was in incident log but no longer has a cause
     all_inc_svcs = {e["service"] for e in INCIDENT_LOG if e.get("reason") != "RESOLVED"}
     for svc in (all_inc_svcs - cause_svcs):
-        # Check if the last event for this service was an incident (not resolved)
-        for e in INCIDENT_LOG:
-            if e["service"] == svc and e.get("reason") != "RESOLVED":
-                INCIDENT_LOG.appendleft({
-                    "ts":      ts,
-                    "service": svc,
-                    "label":   SERVICE_LABELS.get(svc, svc),
-                    "reason":  "RESOLVED",
-                    "value":   None,
-                    "metric":  None,
-                    "risk_level": "LOW",
-                    "id":      int(time.time() * 1000) + 1,
-                })
-                break
+        last_for_svc = next((e for e in INCIDENT_LOG if e["service"] == svc), None)
+        if last_for_svc and last_for_svc.get("reason") != "RESOLVED":
+            INCIDENT_LOG.appendleft({
+                "ts":         ts,
+                "date":       day,
+                "service":    svc,
+                "label":      SERVICE_LABELS.get(svc, svc),
+                "reason":     "RESOLVED",
+                "value":      None,
+                "metric":     None,
+                "risk_level": "LOW",
+                "id":         int(time.time() * 1000) + 1,
+            })
+
+    _save_incident_log()
 
 
 def rule_based_risk(raw: dict) -> tuple:
@@ -751,7 +753,7 @@ def full_pipeline(raw: dict) -> dict:
         "sla_compliance":        sla,
         "observability_status":  obs,
         "observability_pct":     obs_pct,
-        "incident_log":          list(INCIDENT_LOG)[:20],
+        "incident_log":          list(INCIDENT_LOG),
         "live_metrics": {
             svc: {
                 "error_rate_5xx": round(float(raw.get(f"{svc}_error_rate_5xx", 0)), 4),
@@ -802,6 +804,15 @@ def incidents():
     return jsonify({"incidents": list(INCIDENT_LOG), "count": len(INCIDENT_LOG)})
 
 
+@app.route("/incidents/clear", methods=["POST"])
+def clear_incidents():
+    """Clear the incident log (useful for demo resets)."""
+    INCIDENT_LOG.clear()
+    _last_rec_fingerprint.clear()
+    _save_incident_log()
+    return jsonify({"status": "cleared"})
+
+
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
@@ -835,6 +846,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     _load_model()
+    _load_incident_log()
 
     print(f"\nPrediction API running on http://{args.host}:{args.port}")
     print("  GET  /health")

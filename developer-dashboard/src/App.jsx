@@ -52,6 +52,8 @@ const NAV_SECTIONS = [
   { id: 'sla',           label: 'SLA Compliance',  icon: Target     },
   { id: 'anomaly',       label: 'Anomaly Engine',  icon: AlertCircle},
   { id: 'incidents',     label: 'Incident Log',    icon: Bell       },
+  { id: 'history',       label: 'Failure History', icon: BookOpen   },
+  { id: 'replay',        label: 'Cascade Replay',  icon: Play       },
   { id: 'fault',         label: 'Fault Injection', icon: Wrench     },
   { id: 'recs',          label: 'Recommendations', icon: Lightbulb  },
 ]
@@ -821,7 +823,14 @@ function IncidentLogPanel({ incidents }) {
                   <p className="font-mono text-slate-400">{e.metric}: <span className="text-slate-200">{e.value}</span></p>
                 )}
               </div>
-              <span className="text-[10px] text-slate-500 font-mono shrink-0 mt-0.5">{e.ts}</span>
+              <div className="text-right shrink-0 mt-0.5 min-w-[90px]">
+                {e.ts ? (
+                  <>
+                    <p className="text-[10px] text-slate-400 font-mono">{e.ts.split(' ')[0]}</p>
+                    <p className="text-[10px] text-slate-500 font-mono">{e.ts.split(' ')[1]}</p>
+                  </>
+                ) : null}
+              </div>
             </div>
           ))
         )}
@@ -830,7 +839,354 @@ function IncidentLogPanel({ incidents }) {
   )
 }
 
-// ── 8. FAULT INJECTION PANEL ──────────────────────────────────────────────────
+// ── 8. FAILURE HISTORY TIMELINE ──────────────────────────────────────────────
+function FailureHistoryPanel({ incidents }) {
+  const [filterSvc, setFilterSvc] = useState('ALL')
+  const [filterType, setFilterType] = useState('ALL')
+  const API_BASE_ML = '/api'
+
+  const clearHistory = async () => {
+    try {
+      await fetch(`${API_BASE_ML}/incidents/clear`, { method: 'POST' })
+    } catch (_) {}
+  }
+
+  const all = incidents || []
+
+  // Group by date
+  const byDate = {}
+  all.forEach(e => {
+    const d = e.date || e.ts?.split(' ')[0] || 'Unknown'
+    if (!byDate[d]) byDate[d] = []
+    byDate[d].push(e)
+  })
+  const dates = Object.keys(byDate).sort((a, b) => b.localeCompare(a))
+
+  // Service heatmap: for each service, how many incidents per date
+  const heatDates = dates.slice(0, 7)
+  const heatData  = SERVICES.map(svc => ({
+    svc,
+    label: SERVICE_LABELS[svc].replace(' Service', ''),
+    counts: heatDates.map(d => ({
+      date:  d,
+      count: (byDate[d] || []).filter(e => e.service === svc && e.reason !== 'RESOLVED').length,
+    })),
+  }))
+
+  const filtered = all.filter(e =>
+    (filterSvc  === 'ALL' || e.service === filterSvc) &&
+    (filterType === 'ALL' || e.reason  === filterType)
+  )
+
+  const heatColor = n =>
+    n === 0 ? 'bg-slate-800 text-slate-600' :
+    n === 1 ? 'bg-yellow-900/60 text-yellow-400' :
+    n <= 3  ? 'bg-orange-900/60 text-orange-400' :
+              'bg-red-900/70 text-red-400'
+
+  return (
+    <Panel id="history">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+        <SectionTitle icon={BookOpen} color="text-indigo-400">Failure History &amp; Heatmap</SectionTitle>
+        <button onClick={clearHistory}
+          className="text-[10px] px-2.5 py-1 rounded border bg-slate-800 border-slate-700 text-slate-400 hover:bg-red-950 hover:border-red-700 hover:text-red-300 transition flex items-center gap-1">
+          <XCircle size={10} /> Clear History
+        </button>
+      </div>
+
+      {/* Service × Date heatmap */}
+      {heatDates.length > 0 && (
+        <div className="overflow-x-auto">
+          <p className="text-[11px] text-slate-500 uppercase tracking-wider font-bold mb-2">Incident Heatmap — Last {heatDates.length} Days</p>
+          <table className="w-full text-[10px] font-mono border-separate border-spacing-1">
+            <thead>
+              <tr>
+                <th className="text-left text-slate-500 pr-3 font-normal w-28">Service</th>
+                {heatDates.map(d => (
+                  <th key={d} className="text-slate-500 font-normal text-center min-w-[70px]">{d.slice(5)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {heatData.map(row => (
+                <tr key={row.svc}>
+                  <td className="text-slate-300 pr-3 py-1 font-sans text-[11px]" style={{ color: SERVICE_COLORS[row.svc] }}>{row.label}</td>
+                  {row.counts.map(c => (
+                    <td key={c.date} className={`text-center rounded py-1.5 font-bold ${heatColor(c.count)}`}>
+                      {c.count > 0 ? c.count : '·'}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-800">
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className="text-[10px] text-slate-500 mr-1">Service:</span>
+          {['ALL', ...SERVICES].map(s => (
+            <button key={s} onClick={() => setFilterSvc(s)}
+              className={`text-[10px] px-2 py-0.5 rounded border transition
+                ${filterSvc === s ? 'bg-indigo-900/60 border-indigo-700 text-indigo-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}>
+              {s === 'ALL' ? 'All' : SERVICE_LABELS[s]?.replace(' Service', '')}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className="text-[10px] text-slate-500 mr-1">Type:</span>
+          {['ALL', 'SERVICE_DOWN', 'HIGH_ERROR_RATE', 'HIGH_LATENCY', 'RESOLVED'].map(t => (
+            <button key={t} onClick={() => setFilterType(t)}
+              className={`text-[10px] px-2 py-0.5 rounded border transition uppercase
+                ${filterType === t ? 'bg-indigo-900/60 border-indigo-700 text-indigo-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}>
+              {t === 'ALL' ? 'All' : t.replace(/_/g, ' ')}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Full chronological log grouped by date */}
+      <div className="max-h-[480px] overflow-y-auto space-y-4 pr-1">
+        {dates.length === 0 ? (
+          <p className="text-slate-500 text-xs italic text-center py-8">No incident history yet — inject a fault to generate events.</p>
+        ) : dates.map(date => {
+          const dayEvents = (byDate[date] || []).filter(e =>
+            (filterSvc  === 'ALL' || e.service === filterSvc) &&
+            (filterType === 'ALL' || e.reason  === filterType)
+          )
+          if (!dayEvents.length) return null
+          return (
+            <div key={date}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[11px] font-bold text-slate-400 font-mono">{date}</span>
+                <span className="text-[10px] text-slate-600 bg-slate-800 px-1.5 py-0.5 rounded">{dayEvents.length} event{dayEvents.length > 1 ? 's' : ''}</span>
+                <div className="flex-1 h-px bg-slate-800" />
+              </div>
+              <div className="space-y-1.5">
+                {dayEvents.map((e, i) => (
+                  <div key={e.id || i} className={`flex items-center gap-3 px-3 py-2 rounded-lg border text-xs ${REASON_STYLE[e.reason] || 'bg-slate-800/40 border-slate-700/30'}`}>
+                    <div className="shrink-0">{REASON_ICON[e.reason] || <Info size={12} className="text-slate-400" />}</div>
+                    <span className="font-mono text-slate-500 shrink-0 w-[58px]">{e.ts?.split(' ')[1] || ''}</span>
+                    <span className="font-semibold shrink-0" style={{ color: SERVICE_COLORS[e.service] }}>
+                      {SERVICE_LABELS[e.service] || e.service}
+                    </span>
+                    <Badge className={e.reason === 'RESOLVED' ? 'bg-green-950 text-green-400 border-green-800' : 'bg-slate-800 text-slate-300 border-slate-700'}>
+                      {e.reason?.replace(/_/g, ' ')}
+                    </Badge>
+                    {e.metric && e.value != null && (
+                      <span className="font-mono text-slate-500">{e.metric}: <span className="text-slate-300">{e.value}</span></span>
+                    )}
+                    <span className="ml-auto shrink-0"><Badge className={sevColour(e.risk_level || 'LOW')}>{e.risk_level || 'LOW'}</Badge></span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </Panel>
+  )
+}
+
+// ── 9. CASCADE REPLAY ─────────────────────────────────────────────────────────
+function CascadeReplayPanel({ incidents, cascadePath }) {
+  const [step,    setStep]    = useState(-1)   // -1 = not started
+  const [playing, setPlaying] = useState(false)
+  const intervalRef = useRef(null)
+
+  // Build replay steps from recent incident log
+  const replaySteps = React.useMemo(() => {
+    const relevant = (incidents || [])
+      .filter(e => e.reason !== 'RESOLVED')
+      .slice(0, 20)
+      .reverse()  // oldest first
+
+    if (!relevant.length && cascadePath?.length) {
+      // Fallback: use cascade path from live data
+      return cascadePath.map((svc, i) => ({
+        svc,
+        reason: 'CASCADE',
+        ts:     `step ${i + 1}`,
+        metric: null,
+        value:  null,
+      }))
+    }
+
+    return relevant.map(e => ({
+      svc:    e.service,
+      reason: e.reason,
+      ts:     e.ts,
+      metric: e.metric,
+      value:  e.value,
+    }))
+  }, [incidents, cascadePath])
+
+  const start = () => {
+    setStep(0)
+    setPlaying(true)
+  }
+
+  const stop = () => {
+    setPlaying(false)
+    clearInterval(intervalRef.current)
+    setStep(-1)
+  }
+
+  useEffect(() => {
+    if (!playing) return
+    intervalRef.current = setInterval(() => {
+      setStep(prev => {
+        if (prev >= replaySteps.length - 1) {
+          setPlaying(false)
+          return prev
+        }
+        return prev + 1
+      })
+    }, 1200)
+    return () => clearInterval(intervalRef.current)
+  }, [playing, replaySteps.length])
+
+  const activeServices = new Set(replaySteps.slice(0, step + 1).map(s => s.svc))
+  const currentStep    = replaySteps[step]
+
+  return (
+    <Panel id="replay">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+        <SectionTitle icon={Play} color="text-cyan-400">Cascade Replay — Step-by-Step Propagation</SectionTitle>
+        <div className="flex items-center gap-2">
+          {!playing && step === -1 && (
+            <button onClick={start} disabled={!replaySteps.length}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-cyan-900/50 border border-cyan-700 text-cyan-300 text-xs hover:bg-cyan-900 transition disabled:opacity-40">
+              <Play size={12} /> Start Replay
+            </button>
+          )}
+          {(playing || step >= 0) && (
+            <button onClick={stop}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-slate-800 border border-slate-700 text-slate-300 text-xs hover:bg-slate-700 transition">
+              <Square size={12} /> Reset
+            </button>
+          )}
+          <span className="text-[10px] text-slate-500 font-mono">
+            {step >= 0 ? `Step ${step + 1} / ${replaySteps.length}` : `${replaySteps.length} events`}
+          </span>
+        </div>
+      </div>
+
+      {replaySteps.length === 0 ? (
+        <p className="text-slate-500 text-xs italic text-center py-8">No cascade events to replay — inject a fault first.</p>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Service dependency graph with highlight */}
+          <div>
+            <p className="text-[11px] text-slate-500 uppercase tracking-wider font-bold mb-3">Service Propagation Map</p>
+            <svg width="100%" viewBox="0 0 540 340" className="max-w-[520px] mx-auto">
+              <defs>
+                <marker id="rp-arrow" viewBox="0 0 10 10" refX="28" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#6366f1" />
+                </marker>
+              </defs>
+              {/* Architectural edges */}
+              {[
+                ['order','inventory'],['order','payment'],['order','shipping'],['order','notification'],
+                ['shipping','delivery'],['shipping','notification'],['payment','notification'],
+              ].map(([s, t], i) => {
+                const p1 = NODE_POSITIONS[s], p2 = NODE_POSITIONS[t]
+                const active = activeServices.has(s) && activeServices.has(t)
+                return (
+                  <line key={i} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
+                    stroke={active ? '#ef4444' : '#334155'} strokeWidth={active ? 2.5 : 1.5}
+                    markerEnd="url(#rp-arrow)" opacity={active ? 1 : 0.4}
+                    className={active ? 'transition-all duration-500' : ''} />
+                )
+              })}
+              {/* Nodes */}
+              {SERVICES.map(svc => {
+                const pos      = NODE_POSITIONS[svc]
+                const isActive = activeServices.has(svc)
+                const isCurrent= currentStep?.svc === svc
+                const fill     = isCurrent ? '#ef4444' : isActive ? '#f97316' : '#1e293b'
+                const stroke   = isCurrent ? '#b91c1c' : isActive ? '#c2410c' : '#475569'
+                const stepNum  = replaySteps.findIndex(r => r.svc === svc)
+                return (
+                  <g key={svc}>
+                    {isCurrent && (
+                      <circle cx={pos.x} cy={pos.y} r="30" fill="none" stroke="#ef4444"
+                        strokeWidth="2" strokeDasharray="4,3" className="animate-ping" style={{ animationDuration: '1s' }} />
+                    )}
+                    <circle cx={pos.x} cy={pos.y} r="22" fill={fill} stroke={stroke} strokeWidth="3"
+                      className="transition-all duration-500" />
+                    <text x={pos.x} y={pos.y + 4} fill="#fff" fontSize="10" fontWeight="bold" textAnchor="middle">
+                      {svc.toUpperCase().slice(0, 4)}
+                    </text>
+                    {isActive && stepNum >= 0 && (
+                      <circle cx={pos.x + 16} cy={pos.y - 16} r="9" fill="#ef4444" stroke="#7f1d1d" strokeWidth="1.5" />
+                    )}
+                    {isActive && stepNum >= 0 && (
+                      <text x={pos.x + 16} y={pos.y - 12} fill="#fff" fontSize="9" fontWeight="bold" textAnchor="middle">{stepNum + 1}</text>
+                    )}
+                    <text x={pos.x} y={pos.y + 38} fill={isActive ? '#fca5a5' : '#94a3b8'} fontSize="10" fontWeight={isActive ? 700 : 400} textAnchor="middle">
+                      {SERVICE_LABELS[svc]?.replace(' Service', '')}
+                    </text>
+                  </g>
+                )
+              })}
+            </svg>
+          </div>
+
+          {/* Step-by-step event list */}
+          <div>
+            <p className="text-[11px] text-slate-500 uppercase tracking-wider font-bold mb-3">Event Sequence</p>
+            <div className="space-y-1.5 max-h-[280px] overflow-y-auto pr-1">
+              {replaySteps.map((s, i) => {
+                const past    = i <= step
+                const current = i === step
+                return (
+                  <div key={i} className={`flex items-center gap-3 px-3 py-2 rounded-lg border text-xs transition-all duration-500
+                    ${current ? 'bg-red-950/40 border-red-700/60 scale-[1.01]' : past ? 'bg-slate-800/60 border-slate-700/30' : 'opacity-30 bg-slate-900/40 border-slate-800/30'}`}>
+                    <span className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold
+                      ${current ? 'bg-red-500 text-white' : past ? 'bg-slate-600 text-slate-200' : 'bg-slate-800 text-slate-600'}`}>
+                      {i + 1}
+                    </span>
+                    <span className="font-semibold" style={{ color: past ? SERVICE_COLORS[s.svc] : '#475569' }}>
+                      {SERVICE_LABELS[s.svc] || s.svc}
+                    </span>
+                    <Badge className={past ? 'bg-red-950 text-red-300 border-red-800' : 'bg-slate-800 text-slate-600 border-slate-700'}>
+                      {s.reason?.replace(/_/g, ' ')}
+                    </Badge>
+                    {s.ts && <span className="ml-auto text-[10px] font-mono text-slate-500">{s.ts}</span>}
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Progress bar */}
+            {step >= 0 && (
+              <div className="mt-4">
+                <div className="flex justify-between text-[10px] text-slate-500 mb-1 font-mono">
+                  <span>Propagation progress</span>
+                  <span>{Math.round(((step + 1) / replaySteps.length) * 100)}%</span>
+                </div>
+                <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-yellow-500 via-orange-500 to-red-500 rounded-full transition-all duration-700"
+                    style={{ width: `${((step + 1) / replaySteps.length) * 100}%` }} />
+                </div>
+                {step >= replaySteps.length - 1 && (
+                  <p className="text-[11px] text-red-400 font-semibold mt-2 text-center">
+                    ⚠ Full cascade propagation complete — {replaySteps.length} services affected
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+// ── 10. FAULT INJECTION PANEL ──────────────────────────────────────────────────
 const FAULT_TYPES = [
   { key: 'latency',     label: 'Latency Spike',   description: 'Inject artificial delay into all responses', icon: Clock     },
   { key: 'error',       label: 'Error Storm',      description: 'Force HTTP 500 responses at a given rate',  icon: XCircle   },
@@ -851,10 +1207,10 @@ function FaultInjectionPanel() {
   const configure = async () => {
     setStatus('loading')
     const body = selectedFault === 'latency'
-      ? { type: 'latency', delayMs }
+      ? { fault: 'LATENCY', delayMs }
       : selectedFault === 'error'
-        ? { type: 'error', rate: errorRate }
-        : { type: 'down' }
+        ? { fault: 'ERROR', delayMs: 0 }
+        : { fault: 'DOWN', delayMs: 0 }
     try {
       const r = await fetch(`${GATEWAY}/fault/${selectedSvc}-service/configure`, {
         method: 'POST',
@@ -888,6 +1244,28 @@ function FaultInjectionPanel() {
     }
   }
 
+  const [statusData, setStatusData] = useState({})  // svc -> { fault, delayMs }
+
+  const checkStatus = async (svc) => {
+    try {
+      const r = await fetch(`${GATEWAY}/fault/${svc}-service/status`, { signal: AbortSignal.timeout(5000) })
+      if (r.ok) {
+        const json = await r.json()
+        setStatusData(p => ({ ...p, [svc]: json }))
+        if (json.fault && json.fault !== 'NONE') {
+          setFaultStates(p => ({ ...p, [svc]: { fault: json.fault, delayMs: json.delayMs || 0 } }))
+        } else {
+          setFaultStates(p => { const n = { ...p }; delete n[svc]; return n })
+        }
+      }
+    } catch (_) {}
+  }
+
+  // On mount, check status of all services
+  useEffect(() => {
+    SERVICES.forEach(svc => checkStatus(svc))
+  }, [])
+
   const resetAll = async () => {
     for (const svc of Object.keys(faultStates)) await reset(svc)
   }
@@ -910,7 +1288,7 @@ function FaultInjectionPanel() {
             <div key={svc} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-950/40 border border-red-700/50 text-xs">
               <Flame size={11} className="text-red-400" />
               <span className="text-red-300 font-semibold">{SERVICE_LABELS[svc]}</span>
-              <span className="text-red-400 font-mono">{f.type}{f.delayMs ? ` ${f.delayMs}ms` : ''}{f.rate != null ? ` ${Math.round(f.rate * 100)}%` : ''}</span>
+              <span className="text-red-400 font-mono">{f.fault}{f.delayMs ? ` ${f.delayMs}ms` : ''}</span>
               <button onClick={() => reset(svc)} className="ml-1 text-slate-400 hover:text-slate-200 transition"><XCircle size={11} /></button>
             </div>
           ))}
@@ -1012,7 +1390,7 @@ function FaultInjectionPanel() {
   )
 }
 
-// ── 9. RECOMMENDATIONS PANEL ──────────────────────────────────────────────────
+// ── 11. RECOMMENDATIONS PANEL ──────────────────────────────────────────────────
 function RecommendationsPanel({ recs, rootCause, cascadePath }) {
   const [expanded, setExpanded] = useState(new Set([0]))
 
@@ -1091,7 +1469,7 @@ function RecommendationsPanel({ recs, rootCause, cascadePath }) {
                 const globalIdx = recs.indexOf(r)
                 const isOpen    = expanded.has(globalIdx)
                 return (
-                  <div key={globalIdx} className={`rounded-lg border text-xs overflow-hidden transition-all ${r.severity === 'CRITICAL' ? 'border-red-800/60' : r.severity === 'HIGH' ? 'border-orange-800/50' : r.severity === 'MEDIUM' ? 'border-yellow-800/40' : 'border-slate-700/40'}`}>
+                  <div key={globalIdx} className={`rounded-lg border text-xs overflow-hidden transition-all ${r._repeat ? 'opacity-50' : ''} ${r.severity === 'CRITICAL' ? 'border-red-800/60' : r.severity === 'HIGH' ? 'border-orange-800/50' : r.severity === 'MEDIUM' ? 'border-yellow-800/40' : 'border-slate-700/40'}`}>
                     <button onClick={() => toggle(globalIdx)}
                       className={`w-full flex items-center gap-3 p-3 text-left transition ${isOpen ? 'bg-slate-800/80' : 'bg-slate-800/40 hover:bg-slate-800/60'}`}>
                       <span className="shrink-0 w-6 h-6 rounded-full bg-slate-700 text-slate-300 text-[10px] flex items-center justify-center font-bold font-mono">
@@ -1099,6 +1477,7 @@ function RecommendationsPanel({ recs, rootCause, cascadePath }) {
                       </span>
                       <Badge className={sevColour(r.severity)}>{r.severity}</Badge>
                       <span className="flex-1 font-semibold text-slate-200 text-left">{r.title}</span>
+                      {r._repeat && <span className="text-[9px] text-slate-600 font-mono shrink-0 px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700">already shown</span>}
                       <span className="text-slate-500 text-[10px] font-mono shrink-0" style={{ color: SERVICE_COLORS[r.service] }}>
                         {r.service !== 'system' ? SERVICE_LABELS[r.service]?.replace(' Service','') : 'System'}
                       </span>
@@ -1394,6 +1773,19 @@ export default function App() {
             { id: 'incidents', El: () => (
               <div ref={el => sectionRefs.current['incidents'] = el}>
                 <IncidentLogPanel incidents={data?.incident_log} />
+              </div>
+            )},
+            { id: 'history', El: () => (
+              <div ref={el => sectionRefs.current['history'] = el}>
+                <FailureHistoryPanel incidents={data?.incident_log} />
+              </div>
+            )},
+            { id: 'replay', El: () => (
+              <div ref={el => sectionRefs.current['replay'] = el}>
+                <CascadeReplayPanel
+                  incidents={data?.incident_log}
+                  cascadePath={data?.cascade_path}
+                />
               </div>
             )},
             { id: 'fault', El: () => (
