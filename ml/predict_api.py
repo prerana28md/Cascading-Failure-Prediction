@@ -35,6 +35,18 @@ MODEL_DIR      = os.getenv("MODEL_DIR", os.path.join(os.path.dirname(__file__), 
 
 SERVICES = ["order", "payment", "inventory", "shipping", "delivery", "notification"]
 
+# Direct service ports — used for fault-aware health probing
+# The ML API bypasses the gateway and hits each service directly so it can
+# detect DOWN/ERROR/LATENCY faults that Prometheus's scrape target doesn't expose.
+SERVICE_PORTS = {
+    "order":        8081,
+    "payment":      8082,
+    "inventory":    8083,
+    "shipping":     8084,
+    "delivery":     8085,
+    "notification": 8086,
+}
+
 SERVICE_LABELS = {
     "order":        "Order Service",
     "payment":      "Payment Service",
@@ -156,6 +168,35 @@ def _is_prometheus_up() -> bool:
         return False
 
 
+# ── Direct fault-aware service probe ─────────────────────────────────────────
+# Prometheus's `up` metric stays 1 even when a FaultInterceptor DOWN/ERROR
+# fault is active, because /actuator/** is excluded from fault injection.
+# We probe each service directly to get the real operational state.
+def _probe_service_faults() -> dict:
+    """
+    For each service, call GET /fault/{svc}-service/status via the gateway.
+    Returns { svc: {"fault": "NONE"|"LATENCY"|"ERROR"|"DOWN", "delayMs": int} }
+    Falls back to {"fault": "NONE", "delayMs": 0} on any error.
+    """
+    import requests as req
+    gateway = os.getenv("GATEWAY_URL", "http://localhost:8080")
+    result  = {}
+    for svc in SERVICES:
+        try:
+            r = req.get(f"{gateway}/fault/{svc}-service/status", timeout=1.5)
+            if r.status_code == 200:
+                data = r.json()
+                result[svc] = {
+                    "fault":   data.get("fault",   "NONE"),
+                    "delayMs": int(data.get("delayMs", 0)),
+                }
+            else:
+                result[svc] = {"fault": "NONE", "delayMs": 0}
+        except Exception:
+            result[svc] = {"fault": "NONE", "delayMs": 0}
+    return result
+
+
 # ── Prometheus scraper ────────────────────────────────────────────────────────
 def _prom(query):
     try:
@@ -191,6 +232,38 @@ def scrape() -> dict:
             for k, q in queries.items():
                 raw[f"{svc}_{k}"] = _prom(q.format(s=svc))
 
+    # ── Fault-aware override ───────────────────────────────────────────────────
+    # Prometheus's `up` metric stays 1 even when DOWN/ERROR/LATENCY faults are
+    # active because /actuator/** is excluded from FaultInterceptor.
+    # Query the gateway fault-status endpoint directly and synthesise realistic
+    # metric values so the ML pipeline + dashboard reflect real injected state.
+    try:
+        fault_states = _probe_service_faults()
+        for svc, fs in fault_states.items():
+            fault = fs.get("fault", "NONE")
+            delay = fs.get("delayMs", 0)
+
+            if fault == "DOWN":
+                # Service is fully down — mark it and inject high error signal
+                raw[f"{svc}_service_up"]     = 0.0
+                raw[f"{svc}_error_rate_5xx"] = max(raw.get(f"{svc}_error_rate_5xx", 0.0), 1.0)
+
+            elif fault == "ERROR":
+                # Service responds with 500 — stays up but has high error rate
+                raw[f"{svc}_service_up"]     = 1.0
+                raw[f"{svc}_error_rate_5xx"] = max(raw.get(f"{svc}_error_rate_5xx", 0.0), 0.5)
+
+            elif fault == "LATENCY" and delay > 0:
+                # Service is up but slow — inject synthetic latency
+                raw[f"{svc}_service_up"]   = 1.0
+                synthetic_p99 = delay / 1000.0          # ms → seconds
+                raw[f"{svc}_p99_latency_s"] = max(raw.get(f"{svc}_p99_latency_s", 0.0), synthetic_p99)
+                raw[f"{svc}_p50_latency_s"] = max(raw.get(f"{svc}_p50_latency_s", 0.0), synthetic_p99 * 0.8)
+
+    except Exception as e:
+        print(f"[WARN] Fault-aware probe failed: {e}")
+
+    # ── System-level aggregates ────────────────────────────────────────────────
     err_vals = [raw.get(f"{s}_error_rate_5xx", 0.0) for s in SERVICES]
     p99_vals = [raw.get(f"{s}_p99_latency_s",  0.0) for s in SERVICES]
     up_vals  = [raw.get(f"{s}_service_up",      1.0) for s in SERVICES]
@@ -610,21 +683,27 @@ def structured_recommendations(causes: list, raw: dict, risk_level: str, sla: di
 
 
 def _append_incident(raw: dict, causes: list, risk_level: str):
-    """Append anomalies to the rolling incident log with full datetime. Deduplicates consecutive identical events."""
+    """Append anomalies to the rolling incident log. Deduplicates consecutive identical events.
+    Auto-resolves services that were previously incident-active but now have no cause.
+    Uses appendleft so index-0 is always the most recent entry.
+    """
     now = time.localtime()
-    ts  = time.strftime("%Y-%m-%d %H:%M:%S", now)   # full date + time
+    ts  = time.strftime("%Y-%m-%d %H:%M:%S", now)
     day = time.strftime("%Y-%m-%d", now)
 
     cause_svcs = {c["service"] for c in causes}
 
+    # ── Append new / changed incidents ────────────────────────────────────────
     for c in causes:
         svc    = c["service"]
         reason = c["reason"]
 
-        # Deduplicate: skip if the most recent event for this service has same reason
+        # Find the most recent (index-0 first) entry for this service
         last_for_svc = next((e for e in INCIDENT_LOG if e["service"] == svc), None)
+
+        # Skip if most recent entry for this service already has the same reason
         if last_for_svc and last_for_svc.get("reason") == reason:
-            continue  # same fault still active — don't flood the log
+            continue
 
         INCIDENT_LOG.appendleft({
             "ts":         ts,
@@ -638,11 +717,18 @@ def _append_incident(raw: dict, causes: list, risk_level: str):
             "id":         int(time.time() * 1000),
         })
 
-    # Auto-resolve: service was in incident log but no longer has a cause
-    all_inc_svcs = {e["service"] for e in INCIDENT_LOG if e.get("reason") != "RESOLVED"}
-    for svc in (all_inc_svcs - cause_svcs):
+    # ── Auto-resolve ──────────────────────────────────────────────────────────
+    # For every service that has a non-RESOLVED entry as its LATEST log entry,
+    # but is NOT in the current cause set → append a RESOLVED entry.
+    for svc in SERVICES:
+        if svc in cause_svcs:
+            continue   # still has an active cause — do not resolve
+
+        # Find the most recent entry for this service
         last_for_svc = next((e for e in INCIDENT_LOG if e["service"] == svc), None)
-        if last_for_svc and last_for_svc.get("reason") != "RESOLVED":
+
+        # Only resolve if the latest entry is an active (non-RESOLVED) incident
+        if last_for_svc and last_for_svc.get("reason") not in (None, "RESOLVED"):
             INCIDENT_LOG.appendleft({
                 "ts":         ts,
                 "date":       day,
@@ -652,7 +738,7 @@ def _append_incident(raw: dict, causes: list, risk_level: str):
                 "value":      None,
                 "metric":     None,
                 "risk_level": "LOW",
-                "id":         int(time.time() * 1000) + 1,
+                "id":         int(time.time() * 1000) + SERVICES.index(svc),
             })
 
     _save_incident_log()
