@@ -1274,11 +1274,16 @@ function FaultInjectionPanel() {
     <Panel id="fault">
       <div className="flex items-center justify-between">
         <SectionTitle icon={Wrench} color="text-red-400">Chaos / Fault Injection Control</SectionTitle>
-        {Object.keys(faultStates).length > 0 && (
-          <button onClick={resetAll} className="text-xs px-3 py-1.5 rounded bg-green-900/40 border border-green-700 text-green-300 hover:bg-green-900/60 transition flex items-center gap-1.5">
-            <CheckSquare size={12} /> Reset All Faults
+        <div className="flex items-center gap-2">
+          <button onClick={() => SERVICES.forEach(svc => checkStatus(svc))}
+            className="text-xs px-3 py-1.5 rounded bg-slate-800 border border-slate-700 text-slate-400 hover:bg-slate-700 transition flex items-center gap-1.5">
+            <RefreshCw size={12} /> Refresh Status
           </button>
-        )}
+          <button onClick={async () => { for (const svc of SERVICES) await reset(svc) }}
+            className="text-xs px-3 py-1.5 rounded bg-green-900/40 border border-green-700 text-green-300 hover:bg-green-900/60 transition flex items-center gap-1.5">
+            <CheckSquare size={12} /> Reset All
+          </button>
+        </div>
       </div>
 
       {/* Active fault badges */}

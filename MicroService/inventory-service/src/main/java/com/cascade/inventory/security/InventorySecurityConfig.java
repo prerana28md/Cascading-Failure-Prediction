@@ -38,6 +38,9 @@ public class InventorySecurityConfig {
                 .requestMatchers("/actuator/health", "/actuator/info",
                                  "/actuator/prometheus").permitAll()
 
+                // ── Fault injection — public (dev/research use, no token needed) ──
+                .requestMatchers("/fault/**").permitAll()
+
                 // ── Internal stock deduction — order-service calls this ────────
                 // In a zero-trust setup you'd verify a service token here too,
                 // but currently order-service doesn't carry a service JWT,

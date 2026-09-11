@@ -49,6 +49,9 @@ public class GatewaySecurityConfig {
                 // ── Public: auth endpoints (proxied to order-service /auth/**) ──
                 .requestMatchers("/auth/**").permitAll()
 
+                // ── Public: fault injection endpoints (dev/research use) ───────
+                .requestMatchers("/fault/**").permitAll()
+
                 // ── Public: actuator health check ─────────────────────────────
                 .requestMatchers("/actuator/health", "/actuator/info",
                                  "/actuator/prometheus").permitAll()

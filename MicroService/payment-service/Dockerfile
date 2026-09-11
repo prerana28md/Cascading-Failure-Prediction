@@ -1,7 +1,6 @@
 FROM amazoncorretto:17-alpine
-# Install curl for Docker health checks
 RUN apk add --no-cache curl
 WORKDIR /app
 COPY target/*.jar app.jar
 EXPOSE 8082
-ENTRYPOINT ["java","-jar","app.jar"]
+ENTRYPOINT ["sh","-c","echo 'nameserver 8.8.8.8\nnameserver 8.8.4.4' > /etc/resolv.conf && java $JAVA_OPTS -jar app.jar"]

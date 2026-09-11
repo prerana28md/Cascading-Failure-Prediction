@@ -7,10 +7,26 @@ x-healthcheck-defaults: &spring-healthcheck
 
 # ─── Common environment injected into every microservice ─────────────────────
 x-service-env: &common-env
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://172.28.0.30:4318"
+  JAVA_OPTS: "-Dsun.net.inetaddr.ttl=30 -Dnetworkaddress.cache.ttl=30 -Dsun.net.inetaddr.negative.ttl=0 -Djava.net.preferIPv4Stack=true"
 
-# ─── MongoDB Atlas base URI (password comes from .env file or default) ──────────
-x-mongo-base: &mongo-base "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net"
+# ─── Reusable MongoDB Atlas host entries (bypasses DNS — needed on Windows Docker) ──
+x-mongo-hosts: &mongo-hosts
+  extra_hosts:
+    - "ac-oscdkrc-shard-00-00.f46nymd.mongodb.net:159.41.227.47"
+    - "ac-oscdkrc-shard-00-01.f46nymd.mongodb.net:159.41.168.127"
+    - "ac-oscdkrc-shard-00-02.f46nymd.mongodb.net:159.41.245.217"
+    # ── Inter-service hostnames resolved via static IP (UDP/53 blocked on this host) ──
+    - "notification-service:172.28.0.20"
+    - "delivery-service:172.28.0.21"
+    - "inventory-service:172.28.0.22"
+    - "payment-service:172.28.0.23"
+    - "shipping-service:172.28.0.24"
+    - "order-service:172.28.0.25"
+    - "api-gateway:172.28.0.26"
+    - "jaeger:172.28.0.30"
+    - "prometheus:172.28.0.31"
+
 
 services:
 
@@ -23,15 +39,16 @@ services:
     image: jaegertracing/all-in-one:1.58
     container_name: jaeger
     ports:
-      - "16686:16686"   # Jaeger UI
-      - "4317:4317"     # OTLP gRPC
-      - "4318:4318"     # OTLP HTTP
-      - "14250:14250"   # Jaeger collector gRPC
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+      - "14250:14250"
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     restart: unless-stopped
     networks:
-      - cascade-net
+      cascade-net:
+        ipv4_address: 172.28.0.30
 
   # ── Prometheus  (metrics) — UI: 9090 ──────────────────────────────────────
   prometheus:
@@ -50,7 +67,8 @@ services:
       - "--web.console.templates=/usr/share/prometheus/consoles"
     restart: unless-stopped
     networks:
-      - cascade-net
+      cascade-net:
+        ipv4_address: 172.28.0.31
 
   # ── Loki  (log aggregation) — port 3100 ───────────────────────────────────
   loki:
@@ -65,7 +83,8 @@ services:
     user: "0"
     restart: unless-stopped
     networks:
-      - cascade-net
+      cascade-net:
+        ipv4_address: 172.28.0.32
 
   # ── Promtail  (log shipper: Docker → Loki) ────────────────────────────────
   promtail:
@@ -115,14 +134,12 @@ services:
       dockerfile: Dockerfile
     image: cascade/notification-service:latest
     container_name: notification-service
+    <<: *mongo-hosts
     ports:
       - "8086:8086"
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
     environment:
       <<: *common-env
-      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/notification_db?retryWrites=true&w=majority&appName=Cluster0"
+      SPRING_DATA_MONGODB_URI: "mongodb://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@ac-oscdkrc-shard-00-00.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-01.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-02.f46nymd.mongodb.net:27017/notification_db?authSource=admin&replicaSet=atlas-crtyi8-shard-0&tls=true&retryWrites=true&w=majority"
     depends_on:
       - jaeger
       - prometheus
@@ -131,7 +148,8 @@ services:
       <<: *spring-healthcheck
     restart: unless-stopped
     networks:
-      - cascade-net
+      cascade-net:
+        ipv4_address: 172.28.0.20
 
   # ── Delivery Service  (port 8085)  ────────────────────────────────────────
   delivery-service:
@@ -140,14 +158,12 @@ services:
       dockerfile: Dockerfile
     image: cascade/delivery-service:latest
     container_name: delivery-service
+    <<: *mongo-hosts
     ports:
       - "8085:8085"
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
     environment:
       <<: *common-env
-      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/delivery_db?retryWrites=true&w=majority&appName=Cluster0"
+      SPRING_DATA_MONGODB_URI: "mongodb://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@ac-oscdkrc-shard-00-00.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-01.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-02.f46nymd.mongodb.net:27017/delivery_db?authSource=admin&replicaSet=atlas-crtyi8-shard-0&tls=true&retryWrites=true&w=majority"
     depends_on:
       - jaeger
       - prometheus
@@ -156,7 +172,8 @@ services:
       <<: *spring-healthcheck
     restart: unless-stopped
     networks:
-      - cascade-net
+      cascade-net:
+        ipv4_address: 172.28.0.21
 
   # ── Inventory Service  (port 8083)  ───────────────────────────────────────
   inventory-service:
@@ -165,14 +182,12 @@ services:
       dockerfile: Dockerfile
     image: cascade/inventory-service:latest
     container_name: inventory-service
+    <<: *mongo-hosts
     ports:
       - "8083:8083"
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
     environment:
       <<: *common-env
-      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/inventory_db?retryWrites=true&w=majority&appName=Cluster0"
+      SPRING_DATA_MONGODB_URI: "mongodb://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@ac-oscdkrc-shard-00-00.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-01.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-02.f46nymd.mongodb.net:27017/inventory_db?authSource=admin&replicaSet=atlas-crtyi8-shard-0&tls=true&retryWrites=true&w=majority"
       JWT_SECRET: "${JWT_SECRET:-cascade-failure-prediction-super-secret-key-2024-min32chars}"
     depends_on:
       - jaeger
@@ -182,7 +197,8 @@ services:
       <<: *spring-healthcheck
     restart: unless-stopped
     networks:
-      - cascade-net
+      cascade-net:
+        ipv4_address: 172.28.0.22
 
   # ── Payment Service  (port 8082)  ─────────────────────────────────────────
   payment-service:
@@ -191,15 +207,13 @@ services:
       dockerfile: Dockerfile
     image: cascade/payment-service:latest
     container_name: payment-service
+    <<: *mongo-hosts
     ports:
       - "8082:8082"
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
     environment:
       <<: *common-env
-      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/payment_db?retryWrites=true&w=majority&appName=Cluster0"
-      SERVICE_NOTIFICATION_URL: "http://notification-service:8086"
+      SPRING_DATA_MONGODB_URI: "mongodb://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@ac-oscdkrc-shard-00-00.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-01.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-02.f46nymd.mongodb.net:27017/payment_db?authSource=admin&replicaSet=atlas-crtyi8-shard-0&tls=true&retryWrites=true&w=majority"
+      SERVICE_NOTIFICATION_URL: "http://172.28.0.20:8086"
     depends_on:
       notification-service:
         condition: service_healthy
@@ -208,7 +222,8 @@ services:
       <<: *spring-healthcheck
     restart: unless-stopped
     networks:
-      - cascade-net
+      cascade-net:
+        ipv4_address: 172.28.0.23
 
   # ── Shipping Service  (port 8084)  ────────────────────────────────────────
   shipping-service:
@@ -217,16 +232,14 @@ services:
       dockerfile: Dockerfile
     image: cascade/shipping-service:latest
     container_name: shipping-service
+    <<: *mongo-hosts
     ports:
       - "8084:8084"
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
     environment:
       <<: *common-env
-      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/shipping_db?retryWrites=true&w=majority&appName=Cluster0"
-      SERVICE_DELIVERY_URL: "http://delivery-service:8085"
-      SERVICE_NOTIFICATION_URL: "http://notification-service:8086"
+      SPRING_DATA_MONGODB_URI: "mongodb://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@ac-oscdkrc-shard-00-00.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-01.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-02.f46nymd.mongodb.net:27017/shipping_db?authSource=admin&replicaSet=atlas-crtyi8-shard-0&tls=true&retryWrites=true&w=majority"
+      SERVICE_DELIVERY_URL: "http://172.28.0.21:8085"
+      SERVICE_NOTIFICATION_URL: "http://172.28.0.20:8086"
     depends_on:
       delivery-service:
         condition: service_healthy
@@ -237,7 +250,8 @@ services:
       <<: *spring-healthcheck
     restart: unless-stopped
     networks:
-      - cascade-net
+      cascade-net:
+        ipv4_address: 172.28.0.24
 
   # ── Order Service  (port 8081)  ───────────────────────────────────────────
   order-service:
@@ -246,18 +260,16 @@ services:
       dockerfile: Dockerfile
     image: cascade/order-service:latest
     container_name: order-service
+    <<: *mongo-hosts
     ports:
       - "8081:8081"
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
     environment:
       <<: *common-env
-      SPRING_DATA_MONGODB_URI: "mongodb+srv://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@cluster0.f46nymd.mongodb.net/order_db?retryWrites=true&w=majority&appName=Cluster0"
-      SERVICE_INVENTORY_URL: "http://inventory-service:8083"
-      SERVICE_PAYMENT_URL: "http://payment-service:8082"
-      SERVICE_SHIPPING_URL: "http://shipping-service:8084"
-      SERVICE_NOTIFICATION_URL: "http://notification-service:8086"
+      SPRING_DATA_MONGODB_URI: "mongodb://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@ac-oscdkrc-shard-00-00.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-01.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-02.f46nymd.mongodb.net:27017/order_db?authSource=admin&replicaSet=atlas-crtyi8-shard-0&tls=true&retryWrites=true&w=majority"
+      SERVICE_INVENTORY_URL: "http://172.28.0.22:8083"
+      SERVICE_PAYMENT_URL: "http://172.28.0.23:8082"
+      SERVICE_SHIPPING_URL: "http://172.28.0.24:8084"
+      SERVICE_NOTIFICATION_URL: "http://172.28.0.20:8086"
       JWT_SECRET: "${JWT_SECRET:-cascade-failure-prediction-super-secret-key-2024-min32chars}"
       JWT_EXPIRATION_MS: "${JWT_EXPIRATION_MS:-86400000}"
     depends_on:
@@ -274,7 +286,8 @@ services:
       <<: *spring-healthcheck
     restart: unless-stopped
     networks:
-      - cascade-net
+      cascade-net:
+        ipv4_address: 172.28.0.25
 
   # ── API Gateway  (port 8080)  ─────────────────────────────────────────────
   api-gateway:
@@ -283,19 +296,17 @@ services:
       dockerfile: Dockerfile
     image: cascade/api-gateway:latest
     container_name: api-gateway
+    <<: *mongo-hosts
     ports:
       - "8080:8080"
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
     environment:
       <<: *common-env
-      SERVICE_ORDER_URL: "http://order-service:8081"
-      SERVICE_PAYMENT_URL: "http://payment-service:8082"
-      SERVICE_INVENTORY_URL: "http://inventory-service:8083"
-      SERVICE_SHIPPING_URL: "http://shipping-service:8084"
-      SERVICE_DELIVERY_URL: "http://delivery-service:8085"
-      SERVICE_NOTIFICATION_URL: "http://notification-service:8086"
+      SERVICE_ORDER_URL: "http://172.28.0.25:8081"
+      SERVICE_PAYMENT_URL: "http://172.28.0.23:8082"
+      SERVICE_INVENTORY_URL: "http://172.28.0.22:8083"
+      SERVICE_SHIPPING_URL: "http://172.28.0.24:8084"
+      SERVICE_DELIVERY_URL: "http://172.28.0.21:8085"
+      SERVICE_NOTIFICATION_URL: "http://172.28.0.20:8086"
       JWT_SECRET: "${JWT_SECRET:-cascade-failure-prediction-super-secret-key-2024-min32chars}"
     depends_on:
       order-service:
@@ -315,7 +326,8 @@ services:
       <<: *spring-healthcheck
     restart: unless-stopped
     networks:
-      - cascade-net
+      cascade-net:
+        ipv4_address: 172.28.0.26
 
   # ── Frontend  (port 3000 → nginx 80)  ─────────────────────────────────────
   frontend:
@@ -347,5 +359,7 @@ networks:
     driver_opts:
       com.docker.network.bridge.enable_ip_masquerade: "true"
     ipam:
+      driver: default
       config:
         - subnet: 172.28.0.0/16
+          gateway: 172.28.0.1

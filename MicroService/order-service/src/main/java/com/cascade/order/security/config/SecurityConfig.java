@@ -67,6 +67,9 @@ public class SecurityConfig {
                 // ── Auth endpoints — fully public ─────────────────────────────
                 .requestMatchers("/auth/**").permitAll()
 
+                // ── Fault injection — public (dev/research use, no token needed) ──
+                .requestMatchers("/fault/**").permitAll()
+
                 // ── Actuator health — public ──────────────────────────────────
                 .requestMatchers("/actuator/health", "/actuator/info",
                                  "/actuator/prometheus").permitAll()
