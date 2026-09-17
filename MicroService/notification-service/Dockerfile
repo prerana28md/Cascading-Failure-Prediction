@@ -1,7 +1,14 @@
+# ── Stage 1: Build ────────────────────────────────────────────────────────────
+FROM maven:3.9.9-amazoncorretto-17-alpine AS builder
+WORKDIR /build
+COPY notification-service/pom.xml pom.xml
+COPY notification-service/src     src
+RUN mvn package -DskipTests --no-transfer-progress
+
+# ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 FROM amazoncorretto:17-alpine
 RUN apk add --no-cache curl
 WORKDIR /app
-COPY target/*.jar app.jar
+COPY --from=builder /build/target/*.jar app.jar
 EXPOSE 8086
-# Override DNS to Google's resolvers so MongoDB Atlas SRV lookups work in Docker on Windows
-ENTRYPOINT ["sh","-c","echo 'nameserver 8.8.8.8\nnameserver 8.8.4.4' > /etc/resolv.conf && java $JAVA_OPTS -jar app.jar"]
+ENTRYPOINT ["sh","-c","echo -e 'nameserver 8.8.8.8\nnameserver 8.8.4.4' > /etc/resolv.conf && exec java $JAVA_OPTS -jar app.jar"]

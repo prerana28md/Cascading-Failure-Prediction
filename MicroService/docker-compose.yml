@@ -130,8 +130,8 @@ services:
   # ── Notification Service  (port 8086)  ────────────────────────────────────
   notification-service:
     build:
-      context: ./notification-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: notification-service/Dockerfile
     image: cascade/notification-service:latest
     container_name: notification-service
     <<: *mongo-hosts
@@ -154,8 +154,8 @@ services:
   # ── Delivery Service  (port 8085)  ────────────────────────────────────────
   delivery-service:
     build:
-      context: ./delivery-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: delivery-service/Dockerfile
     image: cascade/delivery-service:latest
     container_name: delivery-service
     <<: *mongo-hosts
@@ -178,8 +178,8 @@ services:
   # ── Inventory Service  (port 8083)  ───────────────────────────────────────
   inventory-service:
     build:
-      context: ./inventory-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: inventory-service/Dockerfile
     image: cascade/inventory-service:latest
     container_name: inventory-service
     <<: *mongo-hosts
@@ -203,8 +203,8 @@ services:
   # ── Payment Service  (port 8082)  ─────────────────────────────────────────
   payment-service:
     build:
-      context: ./payment-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: payment-service/Dockerfile
     image: cascade/payment-service:latest
     container_name: payment-service
     <<: *mongo-hosts
@@ -228,8 +228,8 @@ services:
   # ── Shipping Service  (port 8084)  ────────────────────────────────────────
   shipping-service:
     build:
-      context: ./shipping-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: shipping-service/Dockerfile
     image: cascade/shipping-service:latest
     container_name: shipping-service
     <<: *mongo-hosts
@@ -256,8 +256,8 @@ services:
   # ── Order Service  (port 8081)  ───────────────────────────────────────────
   order-service:
     build:
-      context: ./order-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: order-service/Dockerfile
     image: cascade/order-service:latest
     container_name: order-service
     <<: *mongo-hosts
@@ -292,8 +292,8 @@ services:
   # ── API Gateway  (port 8080)  ─────────────────────────────────────────────
   api-gateway:
     build:
-      context: ./api-gateway
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: api-gateway/Dockerfile
     image: cascade/api-gateway:latest
     container_name: api-gateway
     <<: *mongo-hosts
