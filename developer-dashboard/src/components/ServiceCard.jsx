@@ -26,8 +26,10 @@ export default function ServiceCard({
   const cfg    = SERVICE_STATUS_CFG[status] ?? SERVICE_STATUS_CFG.UNKNOWN
   const label  = toLabel(serviceKey)
 
-  // Sparkline data — just the values as { v } objects
-  const sparkData = history.map(v => ({ v: v ?? 0 }))
+  // Sparkline data — handle both old format (number[]) and new format (snapshot[])
+  const sparkData = (history ?? []).map(v => ({
+    v: typeof v === 'object' ? (v?.error_rate ?? 0) : (v ?? 0)
+  }))
 
   const sparkColor = {
     HEALTHY:  '#34d399',
@@ -135,7 +137,9 @@ export function ServiceDetailPanel({ serviceKey, metrics, history, incidents }) 
     .filter(e => e.service === serviceKey)
     .slice(0, 8)
 
-  const latencyHistory = history.map(v => ({ v: v ?? 0 }))
+  const latencyHistory = history.map(v => ({
+    v: typeof v === 'object' ? (v?.error_rate ?? 0) : (v ?? 0)
+  }))
 
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900 p-5 space-y-5">

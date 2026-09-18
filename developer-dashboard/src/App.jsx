@@ -8,7 +8,10 @@ import IncidentsPage from './pages/IncidentsPage'
 
 import { fetchLiveMetrics, deriveServiceKeys, POLL_MS } from './lib/api'
 
-const MAX_HISTORY = 30
+// Keep up to 120 data points in the frontend (~16 min at 8s interval).
+// This is INDEPENDENT of the backend HISTORY deque — it never gets flushed
+// on recovery, so charts always show continuous historical variation.
+const MAX_HISTORY = 120
 
 export default function App() {
   const [page,         setPage]         = useState('overview')
@@ -18,7 +21,10 @@ export default function App() {
   const [loading,      setLoading]      = useState(false)
   const [autoRefresh,  setAutoRefresh]  = useState(true)
   const [riskHistory,  setRiskHistory]  = useState([])
-  const [metricHistory,setMetricHistory]= useState({})
+
+  // metricHistory: { [serviceKey]: Array<{ t, time, error_rate, p99, p50, request_rate, service_up }> }
+  // Each entry is a full snapshot with a timestamp so charts can show time labels
+  const [metricHistory, setMetricHistory] = useState({})
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -27,7 +33,8 @@ export default function App() {
     if (json) {
       setData(json)
       setApiStatus('UP')
-      const now = new Date()
+      const now  = new Date()
+      const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
       setLastUpdated(now)
 
       setRiskHistory(prev => [
@@ -39,8 +46,17 @@ export default function App() {
       setMetricHistory(prev => {
         const next = { ...prev }
         keys.forEach(k => {
-          const val = json.live_metrics?.[k]?.error_rate_5xx ?? 0
-          next[k] = [...(next[k] ?? []).slice(-(MAX_HISTORY - 1)), val]
+          const m = json.live_metrics?.[k] ?? {}
+          const snap = {
+            t:            now,
+            time,
+            error_rate:   m.error_rate_5xx  ?? 0,
+            p99:          m.p99_latency_s   ?? 0,
+            p50:          m.p50_latency_s   ?? 0,
+            request_rate: m.request_rate    ?? 0,
+            service_up:   m.service_up      ?? 1,
+          }
+          next[k] = [...(next[k] ?? []).slice(-(MAX_HISTORY - 1)), snap]
         })
         return next
       })

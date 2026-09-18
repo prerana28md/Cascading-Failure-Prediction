@@ -34,8 +34,9 @@ export default function DependencyGraph({
     const ns = graphData.nodes
     const es = graphData.edges ?? []
 
-    // Circular layout — evenly spaced, centred in the 480×320 viewport
-    const cx = 240, cy = 170, rx = 160, ry = 130
+    // Circular layout — evenly spaced, centred in the 480×370 viewport
+    // Radius is generous so the propagation % badges below each node don't overlap
+    const cx = 240, cy = 178, rx = 168, ry = 138
     const pos = {}
     ns.forEach((n, i) => {
       const angle = (2 * Math.PI * i) / ns.length - Math.PI / 2
@@ -91,6 +92,10 @@ export default function DependencyGraph({
           <LegendItem color="#dc2626" label="Root Cause" />
           <LegendItem color="#d97706" label="Cascade Path" />
           <LegendItem color="#3b82f6" label="Healthy"    />
+          <span className="text-slate-700">|</span>
+          <LegendItem color="#ef4444" label="≥70% propagated" bar />
+          <LegendItem color="#f59e0b" label="30–69%"          bar />
+          <LegendItem color="#6366f1" label="1–29%"           bar />
         </div>
       </div>
 
@@ -98,8 +103,8 @@ export default function DependencyGraph({
       <div className="w-full overflow-x-auto">
         <svg
           width="100%"
-          viewBox="0 0 480 340"
-          className="max-h-[380px]"
+          viewBox="0 0 480 370"
+          className="max-h-[420px]"
           style={{ minWidth: 320 }}
         >
           <defs>
@@ -199,6 +204,67 @@ export default function DependencyGraph({
                   {fullLabel}
                 </text>
 
+                {/* ── Failure propagation % badge ──────────────────────── */}
+                {/* Always shown so engineers can compare impact at a glance */}
+                {(() => {
+                  const pct     = node.cascade_effect_pct ?? 0
+                  // Colour tiers: 0 = slate, 1-29 = blue, 30-69 = amber, 70+ = red
+                  const barFill = pct === 0 ? '#334155'
+                                : pct >= 70 ? '#ef4444'
+                                : pct >= 30 ? '#f59e0b'
+                                : '#6366f1'
+                  const txtFill = pct === 0 ? '#64748b'
+                                : pct >= 70 ? '#fca5a5'
+                                : pct >= 30 ? '#fde68a'
+                                : '#c7d2fe'
+                  const bgFill  = pct === 0 ? '#1e293b'
+                                : pct >= 70 ? '#7f1d1d'
+                                : pct >= 30 ? '#78350f'
+                                : '#1e1b4b'
+                  const BAR_W   = 46
+                  const BAR_H   = 5
+                  const bx      = pos.x - BAR_W / 2
+                  const by      = pos.y + 38        // below the name label
+                  const filled  = Math.round((pct / 100) * BAR_W)
+
+                  return (
+                    <g style={{ pointerEvents: 'none' }}>
+                      {/* Pill background */}
+                      <rect
+                        x={bx - 2} y={by - 1}
+                        width={BAR_W + 4} height={BAR_H + 2}
+                        rx={3}
+                        fill={bgFill}
+                        stroke={barFill}
+                        strokeWidth={0.8}
+                        opacity={0.9}
+                      />
+                      {/* Filled portion */}
+                      {filled > 0 && (
+                        <rect
+                          x={bx} y={by}
+                          width={filled} height={BAR_H}
+                          rx={2}
+                          fill={barFill}
+                          opacity={0.9}
+                        />
+                      )}
+                      {/* Percentage label */}
+                      <text
+                        x={pos.x}
+                        y={pos.y + 52}
+                        fill={txtFill}
+                        fontSize={8.5}
+                        fontWeight="700"
+                        fontFamily="monospace"
+                        textAnchor="middle"
+                      >
+                        {pct}% propagated
+                      </text>
+                    </g>
+                  )
+                })()}
+
                 {/* Cascade step badge */}
                 {cascadeSet.has(node.id) && !isRoot && (
                   <>
@@ -252,10 +318,13 @@ export default function DependencyGraph({
   )
 }
 
-function LegendItem({ color, label }) {
+function LegendItem({ color, label, bar = false }) {
   return (
     <span className="flex items-center gap-1">
-      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+      {bar
+        ? <span className="w-3 h-1.5 rounded-sm" style={{ backgroundColor: color }} />
+        : <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+      }
       {label}
     </span>
   )
