@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { MapPin, Search, RefreshCw, CheckCircle2, Clock, AlertCircle, Navigation } from 'lucide-react';
 
-export default function DeliveriesList({ deliveries, loading, error, onRefresh }) {
+export default function DeliveriesList({ deliveries, loading, error, serviceHealth, onRefresh }) {
   const [searchTerm, setSearchTerm] = useState('');
+
+  const isFaulted = serviceHealth?.fault && serviceHealth.fault !== 'NONE';
+  const faultType = serviceHealth?.fault;
 
   const filteredDeliveries = (deliveries || []).filter(d => 
     String(d.id || '').includes(searchTerm) ||
@@ -17,22 +20,40 @@ export default function DeliveriesList({ deliveries, loading, error, onRefresh }
         <div className="space-y-1">
           <div className="flex items-center space-x-2 text-indigo-400 text-xs font-semibold">
             <MapPin className="w-4 h-4" />
-            <span>Delivery Microservice (/deliveries)</span>
+            <span>Delivery Microservice (/deliveries) &bull; Port :8085</span>
           </div>
           <h2 className="text-xl font-bold text-white">Delivery Tracking & Dispatch</h2>
           <p className="text-slate-400 text-xs">
-            Real-time delivery fulfillment assignments created automatically by Delivery Service.
+            Real-time delivery fulfillment assignments created by Delivery Service.
           </p>
         </div>
 
         <button
           onClick={onRefresh}
-          className="flex items-center space-x-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition"
+          className="flex items-center space-x-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition self-start sm:self-center"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           <span>Refresh List</span>
         </button>
       </div>
+
+      {/* Outage / Fault Notice */}
+      {(error || isFaulted) && (
+        <div className="p-5 rounded-2xl bg-rose-950/80 border border-rose-800/80 text-rose-200 text-xs space-y-2 shadow-lg animate-in fade-in duration-200">
+          <div className="flex items-center space-x-2 font-bold text-sm text-rose-300">
+            <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0" />
+            <span>Delivery Microservice Outage Detected</span>
+            {faultType && (
+              <span className="px-2 py-0.5 rounded bg-rose-900 border border-rose-700 text-[10px] font-extrabold uppercase">
+                {faultType}
+              </span>
+            )}
+          </div>
+          <p className="text-slate-300">
+            {error || `Delivery Service (:8085) is experiencing a ${faultType} fault. Final-mile courier routing and delivery status lookups are unavailable.`}
+          </p>
+        </div>
+      )}
 
       {/* Filter */}
       <div className="relative w-full sm:w-80">
@@ -46,14 +67,6 @@ export default function DeliveriesList({ deliveries, loading, error, onRefresh }
         />
       </div>
 
-      {/* Error */}
-      {error && (
-        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center space-x-3">
-          <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0" />
-          <span>Notice: {error}. Displaying mock delivery data.</span>
-        </div>
-      )}
-
       {/* Table */}
       <div className="overflow-x-auto rounded-2xl bg-slate-900/80 border border-slate-800 shadow-xl">
         <table className="w-full text-left text-xs text-slate-300">
@@ -63,7 +76,7 @@ export default function DeliveriesList({ deliveries, loading, error, onRefresh }
               <th className="py-3.5 px-4">Shipment ID</th>
               <th className="py-3.5 px-4">Delivery Status</th>
               <th className="py-3.5 px-4">Estimated Delivery</th>
-              <th className="py-3.5 px-4 text-right">Current Location</th>
+              <th className="py-3.5 px-4 text-right">Last Location</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/60 font-mono">
@@ -71,14 +84,13 @@ export default function DeliveriesList({ deliveries, loading, error, onRefresh }
               <tr>
                 <td colSpan="5" className="py-8 text-center text-slate-500 font-sans">
                   <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-indigo-400" />
-                  <span>Loading deliveries...</span>
+                  <span>Loading delivery records...</span>
                 </td>
               </tr>
             )}
 
             {!loading && filteredDeliveries.map((d) => {
-              const statusUpper = (d.status || 'ASSIGNED').toUpperCase();
-              const isDelivered = statusUpper === 'DELIVERED';
+              const isDelivered = (d.status || '').toUpperCase() === 'DELIVERED';
               return (
                 <tr key={d.id} className="hover:bg-slate-800/40 transition">
                   <td className="py-3.5 px-4 font-bold text-indigo-300">Deliv-#{d.id}</td>
@@ -86,19 +98,17 @@ export default function DeliveriesList({ deliveries, loading, error, onRefresh }
                   <td className="py-3.5 px-4">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${
                       isDelivered 
-                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' 
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                         : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
                     }`}>
                       {isDelivered ? <CheckCircle2 className="w-3 h-3 mr-1" /> : <Clock className="w-3 h-3 mr-1" />}
-                      {statusUpper}
+                      {d.status || 'IN_TRANSIT'}
                     </span>
                   </td>
-                  <td className="py-3.5 px-4 text-slate-200 font-sans">
-                    {d.estimatedDelivery || '3-5 business days'}
-                  </td>
+                  <td className="py-3.5 px-4 text-slate-300 font-sans">{d.estimatedDelivery}</td>
                   <td className="py-3.5 px-4 text-right text-slate-400 font-sans flex items-center justify-end">
-                    <Navigation className="w-3.5 h-3.5 mr-1.5 text-indigo-400" />
-                    <span>{d.lastLocation || 'Fulfillment Center'}</span>
+                    <Navigation className="w-3.5 h-3.5 mr-1 text-slate-500 flex-shrink-0" />
+                    <span>{d.lastLocation}</span>
                   </td>
                 </tr>
               );
@@ -106,8 +116,15 @@ export default function DeliveriesList({ deliveries, loading, error, onRefresh }
 
             {!loading && filteredDeliveries.length === 0 && (
               <tr>
-                <td colSpan="5" className="py-8 text-center text-slate-500 font-sans">
-                  No delivery records found.
+                <td colSpan="5" className="py-10 text-center text-slate-500 font-sans">
+                  {isFaulted || error ? (
+                    <div className="space-y-1">
+                      <p className="text-rose-300 font-semibold">Delivery records unavailable</p>
+                      <p className="text-xs text-slate-500">Service is down or unreachable. Records will appear once delivery-service recovers.</p>
+                    </div>
+                  ) : (
+                    <span>No delivery tracking records found.</span>
+                  )}
                 </td>
               </tr>
             )}

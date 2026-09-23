@@ -13,6 +13,7 @@ x-service-env: &common-env
 # ─── Reusable MongoDB Atlas host entries (bypasses DNS — needed on Windows Docker) ──
 x-mongo-hosts: &mongo-hosts
   extra_hosts:
+    - "host.docker.internal:host-gateway"
     - "ac-oscdkrc-shard-00-00.f46nymd.mongodb.net:159.41.227.47"
     - "ac-oscdkrc-shard-00-01.f46nymd.mongodb.net:159.41.168.127"
     - "ac-oscdkrc-shard-00-02.f46nymd.mongodb.net:159.41.245.217"
@@ -307,6 +308,7 @@ services:
       SERVICE_SHIPPING_URL: "http://172.28.0.24:8084"
       SERVICE_DELIVERY_URL: "http://172.28.0.21:8085"
       SERVICE_NOTIFICATION_URL: "http://172.28.0.20:8086"
+      OMNISTORE_EVENTS_URL: "${OMNISTORE_EVENTS_URL:-http://host.docker.internal:5001/api/fault-events}"
       JWT_SECRET: "${JWT_SECRET:-cascade-failure-prediction-super-secret-key-2024-min32chars}"
     depends_on:
       order-service:

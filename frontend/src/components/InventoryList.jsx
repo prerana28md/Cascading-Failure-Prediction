@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
 import { Boxes, Plus, RefreshCw, MinusCircle, Tag, DollarSign, AlertCircle, CheckCircle2, X } from 'lucide-react';
 
-export default function InventoryList({ inventory, loading, error, onRefresh, onCreateItem, onDeductStock }) {
+export default function InventoryList({ inventory, loading, error, serviceHealth, onRefresh, onCreateItem, onDeductStock }) {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isDeductOpen, setIsDeductOpen] = useState(false);
+
+  const isFaulted = serviceHealth?.fault && serviceHealth.fault !== 'NONE';
+  const faultType = serviceHealth?.fault;
 
   // Form states for Add Product
   const [newProductId, setNewProductId] = useState('');
@@ -54,7 +57,7 @@ export default function InventoryList({ inventory, loading, error, onRefresh, on
         <div className="space-y-1">
           <div className="flex items-center space-x-2 text-indigo-400 text-xs font-semibold">
             <Boxes className="w-4 h-4" />
-            <span>Inventory Microservice (/inventory)</span>
+            <span>Inventory Microservice (/inventory) &bull; Port :8083</span>
           </div>
           <h2 className="text-xl font-bold text-white">Stock & Inventory Management</h2>
           <p className="text-slate-400 text-xs">
@@ -88,6 +91,24 @@ export default function InventoryList({ inventory, loading, error, onRefresh, on
           </button>
         </div>
       </div>
+
+      {/* Outage / Fault Notice */}
+      {(error || isFaulted) && (
+        <div className="p-5 rounded-2xl bg-rose-950/80 border border-rose-800/80 text-rose-200 text-xs space-y-2 shadow-lg animate-in fade-in duration-200">
+          <div className="flex items-center space-x-2 font-bold text-sm text-rose-300">
+            <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0" />
+            <span>Inventory Microservice Outage Detected</span>
+            {faultType && (
+              <span className="px-2 py-0.5 rounded bg-rose-900 border border-rose-700 text-[10px] font-extrabold uppercase">
+                {faultType}
+              </span>
+            )}
+          </div>
+          <p className="text-slate-300">
+            {error || `Inventory Service (:8083) is experiencing a ${faultType} fault. Real-time stock reservation and updates are disrupted.`}
+          </p>
+        </div>
+      )}
 
       {actionStatus && (
         <div className={`p-4 rounded-xl text-xs flex items-center space-x-3 ${

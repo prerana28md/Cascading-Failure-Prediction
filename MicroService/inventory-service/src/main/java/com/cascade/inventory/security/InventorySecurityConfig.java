@@ -42,10 +42,7 @@ public class InventorySecurityConfig {
                 .requestMatchers("/fault/**").permitAll()
 
                 // ── Internal stock deduction — order-service calls this ────────
-                // In a zero-trust setup you'd verify a service token here too,
-                // but currently order-service doesn't carry a service JWT,
-                // so we permit deduct as authenticated (any valid user token is enough).
-                .requestMatchers(HttpMethod.POST, "/inventory/deduct").authenticated()
+                .requestMatchers(HttpMethod.POST, "/inventory/deduct", "/inventories/deduct").permitAll()
 
                 // ── Admin-only: create/update/adjust inventory ────────────────
                 .requestMatchers(HttpMethod.POST,   "/inventory").hasRole("ADMIN")
@@ -53,7 +50,8 @@ public class InventorySecurityConfig {
                 .requestMatchers(HttpMethod.PUT,    "/inventory/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PUT,    "/inventories/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/inventory/**").hasRole("ADMIN")
-                .requestMatchers(HttpMethod.DELETE, "/inventories/**").hasRole("ADMIN")
+                // ── Public: product catalog read access ────────────────────────
+                .requestMatchers(HttpMethod.GET, "/inventory", "/inventory/**", "/inventories/**").permitAll()
 
                 // ── Read endpoints — any authenticated user ───────────────────
                 .anyRequest().authenticated()

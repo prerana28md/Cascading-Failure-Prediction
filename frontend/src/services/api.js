@@ -7,7 +7,7 @@
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.PROD ? '/api' : 'http://localhost:8080');
 
-// Fallback Mock Storage in memory for seamless offline presentation
+// Initial offline seed data (strictly for cold start when backend is entirely offline)
 const mockData = {
   inventory: [
     { id: 1, productId: 101, productName: 'Wireless Noise-Canceling Headphones', price: 199.99, quantity: 45 },
@@ -39,17 +39,82 @@ const mockData = {
   ]
 };
 
-// Generic HTTP request wrapper with graceful error handling & mock fallback
-async function request(endpoint, options = {}, mockKey = null, fallbackFn = null) {
+let isAuthenticating = null;
+
+async function getOrInitToken() {
+  let token = typeof window !== 'undefined' ? localStorage.getItem('omnistore_token') : null;
+  if (token) return token;
+
+  if (isAuthenticating) return isAuthenticating;
+
+  isAuthenticating = (async () => {
+    try {
+      // 1. Try logging in with demo customer credentials
+      const res = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'alice', password: 'password123' })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.token) {
+          localStorage.setItem('omnistore_token', data.token);
+          localStorage.setItem('omnistore_user', JSON.stringify({
+            username: data.username || 'alice',
+            role: data.role || 'USER'
+          }));
+          return data.token;
+        }
+      }
+
+      // 2. If user does not exist, register them
+      const reg = await fetch(`${API_BASE_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'alice', password: 'password123', role: 'USER' })
+      });
+      if (reg.ok) {
+        const data = await reg.json();
+        if (data.token) {
+          localStorage.setItem('omnistore_token', data.token);
+          localStorage.setItem('omnistore_user', JSON.stringify({
+            username: data.username || 'alice',
+            role: data.role || 'USER'
+          }));
+          return data.token;
+        }
+      }
+    } catch (e) {
+      console.warn('[Auto-Auth] Could not obtain automatic token:', e);
+    } finally {
+      isAuthenticating = null;
+    }
+    return null;
+  })();
+
+  return isAuthenticating;
+}
+
+// Generic HTTP request wrapper with genuine error propagation & offline demo fallback
+async function request(endpoint, options = {}, mockKey = null, retryCount = 0) {
   const url = `${API_BASE_URL}${endpoint}`;
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000); // 4s timeout for fast response check
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+    let token = typeof window !== 'undefined' ? localStorage.getItem('omnistore_token') : null;
+    // Auto-acquire token if missing and calling protected microservice endpoint
+    if (!token && !endpoint.startsWith('/auth') && !endpoint.startsWith('/fault') && !endpoint.startsWith('/gateway')) {
+      token = await getOrInitToken();
+    }
+
+    const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
 
     const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+        ...authHeaders,
         ...options.headers,
       },
       signal: controller.signal,
@@ -58,35 +123,209 @@ async function request(endpoint, options = {}, mockKey = null, fallbackFn = null
 
     clearTimeout(timeoutId);
 
+    // If 401 or 403 (unauthorized/forbidden), token may be expired or missing
+    if ((response.status === 401 || response.status === 403) && retryCount === 0 && !endpoint.startsWith('/auth')) {
+      if (typeof window !== 'undefined') localStorage.removeItem('omnistore_token');
+      token = await getOrInitToken();
+      if (token) {
+        return request(endpoint, options, mockKey, 1);
+      }
+    }
+
+    // If HTTP error (e.g. 500, 503, 400, 404, etc.):
     if (!response.ok) {
-      const errorText = await response.text();
-      let errorJson = null;
-      try { errorJson = JSON.parse(errorText); } catch (_) {}
-      throw new Error((errorJson && (errorJson.message || errorJson.error)) || `HTTP ${response.status}: ${response.statusText}`);
+      let errorMsg = `HTTP ${response.status}: ${response.statusText}`;
+      let serviceName = null;
+      let errorStatus = response.status;
+      try {
+        const errorJson = await response.json();
+        if (errorJson) {
+          serviceName = errorJson.service || null;
+          errorMsg = errorJson.message || errorJson.error || errorMsg;
+        }
+      } catch (_) {
+        try {
+          const errorText = await response.text();
+          if (errorText) errorMsg = errorText;
+        } catch (_) {}
+      }
+
+      console.error(`[API Error] ${options.method || 'GET'} ${endpoint} -> ${response.status}: ${errorMsg}`);
+      
+      const isAuthError = response.status === 401 || response.status === 403;
+      return {
+        data: null,
+        error: isAuthError ? 'Authentication required. Please sign in.' : errorMsg,
+        status: errorStatus,
+        service: serviceName,
+        isFault: !isAuthError, // 401/403 is security authentication, NOT a microservice outage!
+        isAuthRequired: isAuthError,
+        isMock: false
+      };
     }
 
     const data = await response.json();
-    return { data, error: null, isMock: false };
+    return { data, error: null, status: 200, isFault: false, isMock: false };
+
   } catch (err) {
-    console.warn(`API Gateway call to ${endpoint} failed/unreachable (${err.message}). Using local mock fallback.`);
-    
-    if (fallbackFn) {
-      const fallbackResult = fallbackFn();
-      return { data: fallbackResult, error: null, isMock: true };
+    const isAbort = err.name === 'AbortError';
+    const errMessage = isAbort ? 'Request timed out (Latency / Network delay)' : err.message;
+    console.warn(`[Network Warning] ${options.method || 'GET'} ${endpoint} failed: ${errMessage}`);
+
+    // If this is a mutation (POST, PUT, DELETE), NEVER fake success!
+    const method = (options.method || 'GET').toUpperCase();
+    if (method !== 'GET') {
+      return {
+        data: null,
+        error: `Action failed: ${errMessage}`,
+        status: isAbort ? 504 : 0,
+        isFault: true,
+        isMock: false
+      };
     }
 
+    // Only for GET queries, if completely offline and initial mockData is available, return mockData
+    // BUT explicitly provide error and isMock: true so UI knows it is offline!
     if (mockKey && mockData[mockKey]) {
-      return { data: mockData[mockKey], error: null, isMock: true };
+      return {
+        data: mockData[mockKey],
+        error: `Backend unreachable (${errMessage}). Showing offline mock data.`,
+        status: 0,
+        isFault: false,
+        isMock: true,
+        isOffline: true
+      };
     }
 
-    return { data: null, error: err.message, isMock: true };
+    return { data: null, error: errMessage, status: 0, isFault: true, isMock: false };
   }
 }
 
 export const api = {
+  // ── Authentication (order-service /auth/** via API Gateway) ───────────
+  async login(username, password) {
+    const res = await request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+    if (res.data && res.data.token) {
+      localStorage.setItem('omnistore_token', res.data.token);
+      localStorage.setItem('omnistore_user', JSON.stringify({
+        username: res.data.username || username,
+        role: res.data.role || 'USER',
+      }));
+    }
+    return res;
+  },
+
+  async register(username, password, role = 'USER') {
+    const res = await request('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, password, role }),
+    });
+    if (res.data && res.data.token) {
+      localStorage.setItem('omnistore_token', res.data.token);
+      localStorage.setItem('omnistore_user', JSON.stringify({
+        username: res.data.username || username,
+        role: res.data.role || role,
+      }));
+    }
+    return res;
+  },
+
+  async getMe() {
+    return request('/auth/me', { method: 'GET' });
+  },
+
+  getCurrentUser() {
+    try {
+      const user = localStorage.getItem('omnistore_user');
+      return user ? JSON.parse(user) : null;
+    } catch (_) {
+      return null;
+    }
+  },
+
+  logout() {
+    localStorage.removeItem('omnistore_token');
+    localStorage.removeItem('omnistore_user');
+  },
+
+  async ensureSession() {
+    let user = this.getCurrentUser();
+    let token = typeof window !== 'undefined' ? localStorage.getItem('omnistore_token') : null;
+    if (user && token) return user;
+    await getOrInitToken();
+    return this.getCurrentUser();
+  },
+
+  async demoLogin(role = 'CUSTOMER') {
+    const username = role === 'ADMIN' ? 'admin' : 'customer';
+    const password = 'password123';
+    // 1. Try login first
+    const loginRes = await this.login(username, password);
+    if (loginRes.data && !loginRes.error) {
+      return loginRes;
+    }
+    // 2. If login fails (user does not exist yet), register user
+    const regRes = await this.register(username, password, role === 'ADMIN' ? 'ADMIN' : 'USER');
+    if (regRes.data && !regRes.error) {
+      return regRes;
+    }
+    // 3. Fallback demo session if backend is completely cold
+    const fallbackUser = { username, role: role === 'ADMIN' ? 'ADMIN' : 'CUSTOMER' };
+    localStorage.setItem('omnistore_user', JSON.stringify(fallbackUser));
+    return { data: fallbackUser, error: null, isMock: true };
+  },
+
   // Check API Gateway connection health
   async checkGatewayHealth() {
-    return request('/gateway/health', { method: 'GET' }, null, () => ({ status: 'UP', message: 'Mock Gateway Active' }));
+    return request('/gateway/health', { method: 'GET' });
+  },
+
+  // Central fault status for all 6 microservices
+  async getFaultStatus() {
+    return request('/fault/status', { method: 'GET' });
+  },
+
+  // Check health and fault state of all 6 services
+  async checkAllServicesHealth() {
+    const services = ['order', 'payment', 'inventory', 'shipping', 'delivery', 'notification'];
+    try {
+      const res = await request('/fault/status', { method: 'GET' });
+      if (res && res.data && typeof res.data === 'object') {
+        const sMap = {};
+        if (Array.isArray(res.data.services)) {
+          res.data.services.forEach(item => {
+            const raw = item.service || item.name || '';
+            sMap[raw] = item;
+            sMap[raw.replace(/-service$/, '')] = item;
+          });
+        }
+        Object.keys(res.data).forEach(k => {
+          if (k !== 'services') {
+            sMap[k] = res.data[k];
+            sMap[k.replace(/-service$/, '')] = res.data[k];
+          }
+        });
+
+        const out = {};
+        for (const s of services) {
+          const sData = sMap[s] || sMap[`${s}-service`] || {};
+          const fault = String(sData.fault || sData.faultType || 'NONE').toUpperCase();
+          out[s] = {
+            service: s,
+            name: `${s.charAt(0).toUpperCase() + s.slice(1)} Service`,
+            fault: fault,
+            delayMs: Number(sData.delayMs || sData.delay_ms || 0),
+            status: fault === 'DOWN' ? 'DOWN' : (fault === 'ERROR' || fault === 'LATENCY' ? 'DEGRADED' : 'HEALTHY'),
+          };
+        }
+        return { data: out, error: null };
+      }
+    } catch (_) {}
+
+    return { data: null, error: 'Fault status check failed' };
   },
 
   // 1. Inventory & Products
@@ -94,24 +333,12 @@ export const api = {
     return request('/inventory', { method: 'GET' }, 'inventory');
   },
   async getInventoryById(id) {
-    return request(`/inventory/${id}`, { method: 'GET' }, null, () => 
-      mockData.inventory.find(i => i.id === Number(id) || i.productId === Number(id))
-    );
+    return request(`/inventory/${id}`, { method: 'GET' });
   },
   async createInventoryItem(item) {
     return request('/inventory', {
       method: 'POST',
       body: JSON.stringify(item),
-    }, null, () => {
-      const newItem = {
-        id: mockData.inventory.length + 1,
-        productId: item.productId || Math.floor(100 + Math.random() * 900),
-        productName: item.productName || 'New Product',
-        price: Number(item.price) || 29.99,
-        quantity: Number(item.quantity) || 10,
-      };
-      mockData.inventory.unshift(newItem);
-      return newItem;
     });
   },
 
@@ -120,79 +347,21 @@ export const api = {
     return request('/orders', { method: 'GET' }, 'orders');
   },
   async getOrderById(id) {
-    return request(`/orders/${id}`, { method: 'GET' }, null, () => 
-      mockData.orders.find(o => o.id === Number(id))
-    );
+    return request(`/orders/${id}`, { method: 'GET' });
   },
   async createOrder(orderData) {
     return request('/orders', {
       method: 'POST',
       body: JSON.stringify(orderData),
-    }, null, () => {
-      const newOrderId = Math.floor(1000 + Math.random() * 9000);
-      const newOrder = {
-        id: newOrderId,
-        customerId: Number(orderData.customerId) || 101,
-        productId: Number(orderData.productId),
-        quantity: Number(orderData.quantity),
-        amount: Number(orderData.amount),
-        status: 'COMPLETED',
-        createdAt: new Date().toISOString()
-      };
-      mockData.orders.unshift(newOrder);
-
-      // Simulate cascade effects in mock data
-      // 1. Deduct Inventory stock
-      const stockItem = mockData.inventory.find(i => i.productId === newOrder.productId);
-      if (stockItem) {
-        stockItem.quantity = Math.max(0, stockItem.quantity - newOrder.quantity);
-      }
-      // 2. Payment
-      const newPayment = {
-        id: Math.floor(2000 + Math.random() * 9000),
-        orderId: newOrderId,
-        amount: newOrder.amount,
-        paymentMethod: 'CREDIT_CARD',
-        status: 'SUCCESS',
-        transactionDate: new Date().toISOString()
-      };
-      mockData.payments.unshift(newPayment);
-      // 3. Shipping
-      const newShipment = {
-        id: Math.floor(3000 + Math.random() * 9000),
-        orderId: newOrderId,
-        address: orderData.shippingAddress || 'Default Customer Address',
-        status: 'SHIPPED',
-        shippedDate: new Date().toISOString()
-      };
-      mockData.shipments.unshift(newShipment);
-      // 4. Delivery
-      const newDelivery = {
-        id: Math.floor(4000 + Math.random() * 9000),
-        shipmentId: newShipment.id,
-        status: 'ASSIGNED',
-        estimatedDelivery: '3-5 business days',
-        lastLocation: 'Fulfillment Center'
-      };
-      mockData.deliveries.unshift(newDelivery);
-      // 5. Notification
-      const newNotif = {
-        id: Math.floor(5000 + Math.random() * 9000),
-        userId: newOrder.customerId,
-        type: 'ORDER_SUCCESS',
-        message: `Order #${newOrderId} placed and processed successfully!`,
-        status: 'SENT',
-        timestamp: new Date().toISOString()
-      };
-      mockData.notifications.unshift(newNotif);
-
-      return newOrder;
     });
   },
 
   // 3. Payments
   async getPayments() {
     return request('/payments', { method: 'GET' }, 'payments');
+  },
+  async getPaymentById(id) {
+    return request(`/payments/${id}`, { method: 'GET' });
   },
 
   // 4. Shipping

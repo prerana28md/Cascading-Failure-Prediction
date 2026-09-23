@@ -12,10 +12,20 @@ import {
   Bell, 
   ArrowRight,
   User,
-  DollarSign
+  DollarSign,
+  XCircle,
+  AlertTriangle
 } from 'lucide-react';
 
-export default function OrderTracker({ orders, selectedOrder, payments, shipments, deliveries, notifications }) {
+export default function OrderTracker({ 
+  orders, 
+  selectedOrder, 
+  payments, 
+  shipments, 
+  deliveries, 
+  notifications,
+  servicesHealth = {}
+}) {
   const [selectedOrderId, setSelectedOrderId] = useState(
     selectedOrder ? selectedOrder.id : (orders && orders.length > 0 ? orders[0].id : '')
   );
@@ -28,14 +38,29 @@ export default function OrderTracker({ orders, selectedOrder, payments, shipment
   const relatedDelivery = deliveries?.find(d => String(d.shipmentId) === String(relatedShipment?.id));
   const relatedNotifs = notifications?.filter(n => (n.message || '').includes(String(activeOrder?.id)));
 
+  // Service fault status check
+  const orderDown = servicesHealth?.order?.fault === 'DOWN';
+  const invDown = servicesHealth?.inventory?.fault === 'DOWN';
+  const payDown = servicesHealth?.payment?.fault === 'DOWN';
+  const shipDown = servicesHealth?.shipping?.fault === 'DOWN';
+  const delivDown = servicesHealth?.delivery?.fault === 'DOWN';
+  const notifDown = servicesHealth?.notification?.fault === 'DOWN';
+
+  const orderFailed = (activeOrder?.status || '').toUpperCase() === 'FAILED';
+  const paymentFailed = (activeOrder?.status || '').toUpperCase() === 'PAYMENT_FAILED' || (payDown && !relatedPayment);
+
   const stages = [
     {
       id: 'order',
       title: 'Order Created',
       service: 'Order Service (:8081)',
       icon: Package,
-      status: activeOrder ? 'COMPLETED' : 'PENDING',
-      details: activeOrder ? `Order #${activeOrder.id} placed for Product #${activeOrder.productId} (Qty: ${activeOrder.quantity})` : 'Waiting for order creation',
+      status: orderFailed || orderDown ? 'FAILED' : activeOrder ? 'COMPLETED' : 'PENDING',
+      details: orderFailed || orderDown 
+        ? (activeOrder?.statusReason || 'Order placement failed or Order Service is unavailable') 
+        : activeOrder 
+        ? `Order #${activeOrder.id} placed for Product #${activeOrder.productId} (Qty: ${activeOrder.quantity})` 
+        : 'Waiting for order creation',
       timestamp: activeOrder?.createdAt ? new Date(activeOrder.createdAt).toLocaleString() : 'Done'
     },
     {
@@ -43,8 +68,12 @@ export default function OrderTracker({ orders, selectedOrder, payments, shipment
       title: 'Stock Deducted',
       service: 'Inventory Service (:8083)',
       icon: Boxes,
-      status: activeOrder ? 'COMPLETED' : 'PENDING',
-      details: activeOrder ? `Reserved ${activeOrder.quantity} unit(s) from Inventory for Product #${activeOrder.productId}` : 'Stock deduction pending',
+      status: invDown ? 'FAILED' : activeOrder ? 'COMPLETED' : 'PENDING',
+      details: invDown 
+        ? 'Inventory Service is currently DOWN. Stock reservation failed.' 
+        : activeOrder 
+        ? `Reserved ${activeOrder.quantity} unit(s) from Inventory for Product #${activeOrder.productId}` 
+        : 'Stock deduction pending',
       timestamp: activeOrder?.createdAt ? new Date(activeOrder.createdAt).toLocaleString() : 'Done'
     },
     {
@@ -52,8 +81,20 @@ export default function OrderTracker({ orders, selectedOrder, payments, shipment
       title: 'Payment Processed',
       service: 'Payment Service (:8082)',
       icon: CreditCard,
-      status: relatedPayment ? (relatedPayment.status || 'SUCCESS') : activeOrder ? 'COMPLETED' : 'PENDING',
-      details: relatedPayment ? `Payment Pay-#${relatedPayment.id} confirmed: $${Number(relatedPayment.amount).toFixed(2)}` : activeOrder ? `Payment of $${Number(activeOrder.amount).toFixed(2)} processed via Credit Card` : 'Payment pending',
+      status: paymentFailed 
+        ? 'FAILED' 
+        : relatedPayment 
+        ? (relatedPayment.status || 'SUCCESS') 
+        : activeOrder && !payDown 
+        ? 'COMPLETED' 
+        : 'PENDING',
+      details: paymentFailed 
+        ? (activeOrder?.statusReason || 'Payment failed: Payment Service is currently DOWN or transaction was rejected.') 
+        : relatedPayment 
+        ? `Payment Pay-#${relatedPayment.id} confirmed: $${Number(relatedPayment.amount).toFixed(2)}` 
+        : activeOrder 
+        ? `Payment processed for $${Number(activeOrder.amount).toFixed(2)}` 
+        : 'Payment pending',
       timestamp: relatedPayment?.transactionDate ? new Date(relatedPayment.transactionDate).toLocaleString() : 'Done'
     },
     {
@@ -61,8 +102,16 @@ export default function OrderTracker({ orders, selectedOrder, payments, shipment
       title: 'Shipment Created',
       service: 'Shipping Service (:8084)',
       icon: Truck,
-      status: relatedShipment ? 'COMPLETED' : activeOrder ? 'COMPLETED' : 'PENDING',
-      details: relatedShipment ? `Shipment Ship-#${relatedShipment.id} created to ${relatedShipment.address}` : activeOrder ? `Shipment created for Order #${activeOrder.id}` : 'Shipment pending',
+      status: paymentFailed ? 'PENDING' : shipDown ? 'FAILED' : relatedShipment ? 'COMPLETED' : activeOrder ? 'COMPLETED' : 'PENDING',
+      details: paymentFailed 
+        ? 'Shipment blocked due to payment failure' 
+        : shipDown 
+        ? 'Shipping Service is currently DOWN. Shipment creation failed.' 
+        : relatedShipment 
+        ? `Shipment Ship-#${relatedShipment.id} created to ${relatedShipment.address}` 
+        : activeOrder 
+        ? `Shipment dispatch created for Order #${activeOrder.id}` 
+        : 'Shipment pending',
       timestamp: relatedShipment?.shippedDate ? new Date(relatedShipment.shippedDate).toLocaleString() : 'Done'
     },
     {
@@ -70,8 +119,16 @@ export default function OrderTracker({ orders, selectedOrder, payments, shipment
       title: 'Out for Delivery',
       service: 'Delivery Service (:8085)',
       icon: MapPin,
-      status: relatedDelivery ? (relatedDelivery.status === 'DELIVERED' ? 'COMPLETED' : 'IN_PROGRESS') : activeOrder ? 'IN_PROGRESS' : 'PENDING',
-      details: relatedDelivery ? `Delivery Deliv-#${relatedDelivery.id}: ${relatedDelivery.status} (${relatedDelivery.estimatedDelivery})` : activeOrder ? 'Delivery assigned, estimated 3-5 business days' : 'Delivery pending',
+      status: paymentFailed ? 'PENDING' : delivDown ? 'FAILED' : relatedDelivery ? (relatedDelivery.status === 'DELIVERED' ? 'COMPLETED' : 'IN_PROGRESS') : activeOrder ? 'IN_PROGRESS' : 'PENDING',
+      details: paymentFailed 
+        ? 'Delivery blocked' 
+        : delivDown 
+        ? 'Delivery Service is currently DOWN. Courier assignment failed.' 
+        : relatedDelivery 
+        ? `Delivery Deliv-#${relatedDelivery.id}: ${relatedDelivery.status} (${relatedDelivery.estimatedDelivery})` 
+        : activeOrder 
+        ? 'Delivery assigned, estimated 3-5 business days' 
+        : 'Delivery pending',
       timestamp: relatedDelivery ? 'In Transit' : 'Pending'
     },
     {
@@ -79,8 +136,14 @@ export default function OrderTracker({ orders, selectedOrder, payments, shipment
       title: 'Notification Sent',
       service: 'Notification Service (:8086)',
       icon: Bell,
-      status: (relatedNotifs && relatedNotifs.length > 0) || activeOrder ? 'COMPLETED' : 'PENDING',
-      details: (relatedNotifs && relatedNotifs.length > 0) ? relatedNotifs[0].message : activeOrder ? `Notification dispatched to User-${activeOrder.customerId}` : 'Notification pending',
+      status: notifDown ? 'FAILED' : (relatedNotifs && relatedNotifs.length > 0) || activeOrder ? 'COMPLETED' : 'PENDING',
+      details: notifDown 
+        ? 'Notification Service is currently DOWN. Push alerts suspended.' 
+        : (relatedNotifs && relatedNotifs.length > 0) 
+        ? relatedNotifs[0].message 
+        : activeOrder 
+        ? `Notification dispatched to User-${activeOrder.customerId}` 
+        : 'Notification pending',
       timestamp: relatedNotifs && relatedNotifs[0]?.timestamp ? new Date(relatedNotifs[0].timestamp).toLocaleTimeString() : 'Sent'
     }
   ];
@@ -101,32 +164,34 @@ export default function OrderTracker({ orders, selectedOrder, payments, shipment
             </p>
           </div>
 
-          {/* Select Order */}
-          <div className="w-full sm:w-72">
-            <label className="block text-[11px] font-semibold text-slate-400 mb-1">Select Order to Track:</label>
+          {/* Order Selector */}
+          <div className="flex items-center space-x-2">
+            <span className="text-xs text-slate-400 font-medium">Select Order:</span>
             <select
               value={selectedOrderId}
               onChange={(e) => setSelectedOrderId(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
+              className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-indigo-300 font-mono focus:outline-none focus:border-indigo-500"
             >
-              {(orders || []).map(o => (
+              {orders?.map(o => (
                 <option key={o.id} value={o.id}>
-                  Order #{o.id} — Cust-{o.customerId} (${Number(o.amount).toFixed(2)})
+                  Order #{o.id} — {o.status} (${Number(o.amount || 0).toFixed(2)})
                 </option>
               ))}
+              {!orders?.length && (
+                <option value="">No Orders Available</option>
+              )}
             </select>
           </div>
         </div>
 
-        {/* Selected Order Summary Card */}
         {activeOrder && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-xl bg-slate-950/70 border border-slate-800 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 text-xs">
             <div>
-              <span className="text-slate-500 block">Order ID</span>
-              <span className="font-mono font-bold text-indigo-300">#{activeOrder.id}</span>
+              <span className="text-slate-500 block">Tracking Order</span>
+              <span className="font-mono font-bold text-indigo-300 text-sm">#{activeOrder.id}</span>
             </div>
             <div>
-              <span className="text-slate-500 block">Customer</span>
+              <span className="text-slate-500 block">Customer ID</span>
               <span className="font-mono font-medium text-slate-200">Cust-{activeOrder.customerId}</span>
             </div>
             <div>
@@ -154,14 +219,17 @@ export default function OrderTracker({ orders, selectedOrder, payments, shipment
           <div className="space-y-6 relative z-10">
             {stages.map((stage, idx) => {
               const Icon = stage.icon;
-              const isCompleted = stage.status === 'COMPLETED';
+              const isCompleted = stage.status === 'COMPLETED' || stage.status === 'SUCCESS';
               const isInProgress = stage.status === 'IN_PROGRESS';
+              const isFailed = stage.status === 'FAILED';
 
               return (
                 <div key={stage.id} className="flex flex-col sm:flex-row items-start sm:items-center space-y-3 sm:space-y-0 sm:space-x-6 group">
                   {/* Step Badge */}
                   <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 transition-all ${
-                    isCompleted 
+                    isFailed
+                      ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40 shadow-lg shadow-rose-500/10'
+                      : isCompleted 
                       ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-lg shadow-emerald-500/10'
                       : isInProgress
                       ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30 animate-pulse'
@@ -171,28 +239,50 @@ export default function OrderTracker({ orders, selectedOrder, payments, shipment
                   </div>
 
                   {/* Stage Details Box */}
-                  <div className="flex-1 w-full p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 hover:border-indigo-500/40 transition">
+                  <div className={`flex-1 w-full p-4 rounded-xl border transition ${
+                    isFailed
+                      ? 'bg-rose-950/40 border-rose-800/80'
+                      : 'bg-slate-950/60 border-slate-800/80 hover:border-indigo-500/40'
+                  }`}>
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                       <div className="flex items-center space-x-2">
-                        <h4 className="text-sm font-bold text-white">{idx + 1}. {stage.title}</h4>
+                        <h4 className={`text-sm font-bold ${isFailed ? 'text-rose-200' : 'text-white'}`}>
+                          {idx + 1}. {stage.title}
+                        </h4>
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-indigo-300">
                           {stage.service}
                         </span>
                       </div>
 
                       <span className={`inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                        isCompleted
+                        isFailed
+                          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                          : isCompleted
                           ? 'bg-emerald-500/10 text-emerald-400'
                           : isInProgress
                           ? 'bg-amber-500/10 text-amber-400'
                           : 'bg-slate-800 text-slate-500'
                       }`}>
-                        {isCompleted ? <CheckCircle2 className="w-3 h-3 mr-1" /> : <Clock className="w-3 h-3 mr-1" />}
-                        {stage.status}
+                        {isFailed ? (
+                          <>
+                            <XCircle className="w-3 h-3 mr-1" />
+                            FAILED
+                          </>
+                        ) : isCompleted ? (
+                          <>
+                            <CheckCircle2 className="w-3 h-3 mr-1" />
+                            COMPLETED
+                          </>
+                        ) : (
+                          <>
+                            <Clock className="w-3 h-3 mr-1" />
+                            {stage.status}
+                          </>
+                        )}
                       </span>
                     </div>
 
-                    <p className="text-xs text-slate-300 mt-2 font-sans">
+                    <p className={`text-xs mt-1.5 leading-relaxed font-sans ${isFailed ? 'text-rose-300 font-medium' : 'text-slate-400'}`}>
                       {stage.details}
                     </p>
                   </div>

@@ -1,5 +1,8 @@
 package com.cascade.gateway.controller;
 
+import com.cascade.gateway.fault.FaultEventSynchronizer;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
@@ -9,12 +12,15 @@ import org.springframework.web.client.RestTemplate;
 import java.net.URI;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.Map;
 
 @RestController
 @CrossOrigin
 public class GatewayProxyController {
 
     private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper;
+    private final FaultEventSynchronizer faultEventSynchronizer;
 
     @Value("${service.order.url:http://localhost:8081}")
     private String orderServiceUrl;
@@ -34,8 +40,11 @@ public class GatewayProxyController {
     @Value("${service.notification.url:http://localhost:8086}")
     private String notificationServiceUrl;
 
-    public GatewayProxyController(RestTemplate restTemplate) {
+    public GatewayProxyController(RestTemplate restTemplate, ObjectMapper objectMapper,
+                                  FaultEventSynchronizer faultEventSynchronizer) {
         this.restTemplate = restTemplate;
+        this.objectMapper = objectMapper;
+        this.faultEventSynchronizer = faultEventSynchronizer;
     }
 
     @RequestMapping(value = {
@@ -46,11 +55,7 @@ public class GatewayProxyController {
             "/delivery/**", "/deliveries/**",
             "/notification/**", "/notifications/**",
             // Auth endpoints — proxied to order-service where JWT is issued
-            "/auth/**",
-            // Fault-injection control endpoints (proxied per target service)
-            // Usage: POST /fault/{service}/configure  e.g. /fault/order-service/configure
-            // The gateway strips the service prefix and forwards /fault/configure to the right service
-            "/fault/**"
+            "/auth/**"
             },
             method = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE})
     public ResponseEntity<byte[]> proxyRequest(@RequestBody(required = false) byte[] body,
@@ -101,6 +106,8 @@ public class GatewayProxyController {
                 });
             }
 
+            addFaultSyncHeaders(respHeaders, synchronizeFault(requestURI, method, body, response.getStatusCode()));
+
             return new ResponseEntity<>(response.getBody(), respHeaders, response.getStatusCode());
         } catch (org.springframework.web.client.HttpStatusCodeException e) {
             HttpHeaders respHeaders = new HttpHeaders();
@@ -118,6 +125,53 @@ public class GatewayProxyController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(("Gateway Error: " + e.getMessage()).getBytes());
         }
+    }
+
+    private FaultEventSynchronizer.SyncResult synchronizeFault(String requestURI, HttpMethod method,
+                                                               byte[] body, HttpStatusCode status) {
+        if (!requestURI.startsWith("/fault/") || !status.is2xxSuccessful()) return null;
+        String[] parts = requestURI.split("/", 4);
+        if (parts.length < 4) return null;
+        String service = parts[2];
+        String action = parts[3];
+        if (method != HttpMethod.POST || !(action.equals("configure") || action.equals("reset"))) return null;
+        try {
+            String fault = "NONE";
+            int delayMs = 0;
+            String eventStatus = "RECOVERED";
+            if (action.equals("configure")) {
+                Map<String, Object> payload = body == null || body.length == 0
+                    ? java.util.Collections.emptyMap()
+                    : objectMapper.readValue(body, new TypeReference<>() {});
+                fault = String.valueOf(payload.getOrDefault("fault", "NONE")).toUpperCase();
+                delayMs = Integer.parseInt(String.valueOf(payload.getOrDefault("delayMs", "0")));
+                eventStatus = "NONE".equals(fault) ? "RECOVERED" : "ACTIVE";
+            }
+            return faultEventSynchronizer.record(
+                    service,
+                    fault,
+                    Math.max(0, delayMs),
+                    eventStatus,
+                    action.equals("reset") ? "Fault reset for " + service : "Injected " + fault + " fault in " + service,
+                    dependenciesFor(service));
+        } catch (Exception ignored) {
+            return new FaultEventSynchronizer.SyncResult(false, 0, 1);
+        }
+    }
+
+    private void addFaultSyncHeaders(HttpHeaders headers, FaultEventSynchronizer.SyncResult result) {
+        if (result == null) return;
+        headers.set("X-Fault-Sync-Status", result.synchronizedNow() ? "SYNCHRONIZED" : "PENDING_RETRY");
+        headers.set("X-Fault-Sync-Pending", String.valueOf(result.pending()));
+    }
+
+    private java.util.List<String> dependenciesFor(String service) {
+        return switch (service) {
+            case "order-service" -> java.util.List.of("inventory-service", "payment-service", "shipping-service", "notification-service");
+            case "shipping-service" -> java.util.List.of("delivery-service", "notification-service");
+            case "payment-service" -> java.util.List.of("notification-service");
+            default -> java.util.List.of();
+        };
     }
 
     private String getTargetServiceUrl(String uri) {

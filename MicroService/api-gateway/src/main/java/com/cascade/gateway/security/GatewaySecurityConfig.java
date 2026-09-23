@@ -56,6 +56,9 @@ public class GatewaySecurityConfig {
                 .requestMatchers("/actuator/health", "/actuator/info",
                                  "/actuator/prometheus").permitAll()
 
+                // ── Public: product catalog read access ────────────────────────
+                .requestMatchers(HttpMethod.GET, "/inventory", "/inventory/**", "/inventories/**").permitAll()
+
                 // ── Admin-only at gateway level (defence-in-depth) ─────────────
                 .requestMatchers(HttpMethod.PUT, "/order/*/status").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PUT, "/orders/*/status").hasRole("ADMIN")

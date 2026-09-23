@@ -1,7 +1,7 @@
 import React from 'react'
 import {
   Activity, LayoutDashboard, Server, Network,
-  AlertCircle, ExternalLink, RefreshCw,
+  AlertCircle, ExternalLink, RefreshCw, FlaskConical,
 } from 'lucide-react'
 
 const NAV = [
@@ -150,6 +150,18 @@ export default function Header({
           >
             <ExternalLink size={11} />
             <span>Customer App</span>
+          </a>
+
+          {/* ── Fault Lab link ────────────────────────────────────── */}
+          <a
+            href="http://localhost:4001"
+            target="_blank"
+            rel="noreferrer"
+            title="Open Fault Injection Lab"
+            className="hidden md:flex items-center gap-1 text-[11px] text-amber-500/80 hover:text-amber-400 transition-colors"
+          >
+            <FlaskConical size={11} />
+            <span>Fault Lab (:4001)</span>
           </a>
 
         </div>

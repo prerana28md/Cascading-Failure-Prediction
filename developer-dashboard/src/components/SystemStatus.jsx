@@ -47,9 +47,9 @@ export function deriveSystemStatus(data) {
   if (!data) return 'UNKNOWN'
   const level = data.risk_level ?? 'LOW'
   const down  = data.system?.num_services_down ?? 0
-  if (level === 'CRITICAL' || down >= 2) return 'CRITICAL'
-  if (level === 'HIGH'     || down >= 1) return 'DEGRADED'
-  if (level === 'MEDIUM')                return 'DEGRADED'
+  const maxErr = data.system?.max_error_rate ?? data.system?.mean_error_rate ?? 0
+  if (level === 'CRITICAL' || down >= 2 || maxErr >= 0.35) return 'CRITICAL'
+  if (level === 'HIGH'     || down >= 1 || level === 'MEDIUM' || maxErr >= 0.08) return 'DEGRADED'
   return 'HEALTHY'
 }
 

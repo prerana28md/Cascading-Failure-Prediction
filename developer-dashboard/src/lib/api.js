@@ -13,7 +13,7 @@
  */
 
 export const ML_API     = import.meta.env.VITE_ML_API_URL     ?? ''        // '' → uses /api proxy
-export const GATEWAY    = import.meta.env.VITE_GATEWAY_URL    ?? 'http://localhost:8080'
+export const GATEWAY    = import.meta.env.VITE_GATEWAY_URL    ?? '/gateway'
 export const POLL_MS    = 8000   // live metrics poll interval
 
 // ── Generic fetch wrapper ────────────────────────────────────────────────────
@@ -43,6 +43,8 @@ export async function clearIncidents() {
   return apiFetch(`${ML_API}/api/incidents/clear`, { method: 'POST' })
 }
 
+export const KNOWN_SERVICES = ['order', 'payment', 'inventory', 'shipping', 'delivery', 'notification']
+
 // ── Fault Injection API (via API Gateway) ───────────────────────────────────
 
 /**
@@ -55,15 +57,48 @@ export async function fetchFaultStatus(serviceKey) {
 }
 
 /**
- * Fetch fault status for an array of service keys in parallel.
- * Returns: { [serviceKey]: { fault, delayMs } | null }
+ * Fetch fault status for an array of service keys.
+ * Tries central GET /fault/status first, then falls back to parallel individual queries.
+ * Returns: { [serviceKey]: { fault, delayMs, active? } | null }
  */
-export async function fetchAllFaultStatuses(serviceKeys) {
+export async function fetchAllFaultStatuses(serviceKeys = KNOWN_SERVICES) {
+  const keys = serviceKeys && serviceKeys.length ? serviceKeys : KNOWN_SERVICES
+  const { data, error } = await apiFetch(`${GATEWAY}/fault/status`)
+  if (!error && data && typeof data === 'object') {
+    const sMap = {}
+    if (Array.isArray(data.services)) {
+      data.services.forEach(item => {
+        const raw = item.service || item.name || ''
+        sMap[raw] = item
+        sMap[raw.replace(/-service$/, '')] = item
+      })
+    }
+    Object.keys(data).forEach(k => {
+      if (k !== 'services') {
+        sMap[k] = data[k]
+        sMap[k.replace(/-service$/, '')] = data[k]
+      }
+    })
+
+    const out = {}
+    for (const k of keys) {
+      const sData = sMap[k] || sMap[`${k}-service`] || {}
+      const f = sData.fault || sData.faultType || 'NONE'
+      out[k] = {
+        service: k,
+        fault:   f,
+        delayMs: Number(sData.delayMs || sData.delay_ms || 0),
+        active:  Boolean(sData.active || (f && f !== 'NONE')),
+      }
+    }
+    return out
+  }
+
   const results = await Promise.allSettled(
-    serviceKeys.map(k => fetchFaultStatus(k))
+    keys.map(k => fetchFaultStatus(k))
   )
   return Object.fromEntries(
-    serviceKeys.map((k, i) => [
+    keys.map((k, i) => [
       k,
       results[i].status === 'fulfilled' ? results[i].value.data : null,
     ])
@@ -72,32 +107,65 @@ export async function fetchAllFaultStatuses(serviceKeys) {
 
 /**
  * Inject a fault into a service.
- * POST /fault/{service}-service/configure
- * body: { fault: 'LATENCY'|'ERROR'|'DOWN'|'NONE', delayMs?: number }
+ * POST /fault/configure (fallback: /fault/{service}-service/configure)
+ * body: { service, fault, faultType, delayMs, delay_ms }
  */
 export async function injectFault(serviceKey, fault, delayMs = 0) {
+  const payload = {
+    service:   serviceKey,
+    fault:     fault,
+    faultType: fault,
+    delayMs:   fault === 'LATENCY' ? delayMs : 0,
+    delay_ms:  fault === 'LATENCY' ? delayMs : 0,
+  }
+
+  const res = await apiFetch(`${GATEWAY}/fault/configure`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(payload),
+  })
+  if (!res.error) return res
+
   return apiFetch(`${GATEWAY}/fault/${serviceKey}-service/configure`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ fault, delayMs }),
+    body:    JSON.stringify(payload),
   })
 }
 
 /**
  * Reset (clear) fault on a service.
- * POST /fault/{service}-service/reset
+ * POST /fault/reset (fallback: /fault/{service}-service/reset)
  */
 export async function resetFault(serviceKey) {
+  const res = await apiFetch(`${GATEWAY}/fault/reset`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ service: serviceKey }),
+  })
+  if (!res.error) return res
+
   return apiFetch(`${GATEWAY}/fault/${serviceKey}-service/reset`, { method: 'POST' })
 }
 
 /**
- * Reset faults on all given service keys sequentially.
+ * Reset faults on all given service keys.
+ * Uses atomic /fault/reset with service: 'ALL', falling back to sequential reset.
  * Returns array of { serviceKey, ok, error }
  */
-export async function resetAllFaults(serviceKeys) {
+export async function resetAllFaults(serviceKeys = KNOWN_SERVICES) {
+  const keys = serviceKeys && serviceKeys.length ? serviceKeys : KNOWN_SERVICES
+  const res = await apiFetch(`${GATEWAY}/fault/reset`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ service: 'ALL' }),
+  })
+  if (!res.error) {
+    return keys.map(k => ({ serviceKey: k, ok: true }))
+  }
+
   const out = []
-  for (const k of serviceKeys) {
+  for (const k of keys) {
     const { error } = await resetFault(k)
     out.push({ serviceKey: k, ok: !error, error })
   }
@@ -108,14 +176,15 @@ export async function resetAllFaults(serviceKeys) {
 
 /**
  * Derive the list of service keys from the live_metrics object.
- * The backend already knows which services exist — we don't hardcode them.
- * Falls back to [] so callers never crash on null data.
+ * Falls back to KNOWN_SERVICES if live_metrics is empty or not yet loaded.
  *
  * @param {object} liveMetrics  data.live_metrics from /metrics/live
  * @returns {string[]}  e.g. ['order','payment','inventory',...]
  */
 export function deriveServiceKeys(liveMetrics) {
-  if (!liveMetrics || typeof liveMetrics !== 'object') return []
+  if (!liveMetrics || typeof liveMetrics !== 'object' || Object.keys(liveMetrics).length === 0) {
+    return KNOWN_SERVICES
+  }
   return Object.keys(liveMetrics)
 }
 
@@ -129,9 +198,9 @@ export function deriveSystemStatus(data) {
   if (!data) return 'UNKNOWN'
   const level = data.risk_level || 'LOW'
   const down  = data.system?.num_services_down ?? 0
-  if (level === 'CRITICAL' || down >= 2) return 'CRITICAL'
-  if (level === 'HIGH'     || down >= 1) return 'DEGRADED'
-  if (level === 'MEDIUM')                return 'DEGRADED'
+  const maxErr = data.system?.max_error_rate ?? data.system?.mean_error_rate ?? 0
+  if (level === 'CRITICAL' || down >= 2 || maxErr >= 0.35) return 'CRITICAL'
+  if (level === 'HIGH'     || down >= 1 || level === 'MEDIUM' || maxErr >= 0.02) return 'DEGRADED'
   return 'HEALTHY'
 }
 

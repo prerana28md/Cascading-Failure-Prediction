@@ -17,11 +17,31 @@ import warnings
 from collections import deque
 
 warnings.filterwarnings("ignore")
+from datetime import datetime, timezone
 
 import networkx as nx
+FAULT_EVENT_LOG_PATH = os.getenv(
+    "FAULT_EVENT_LOG_PATH",
+    os.path.join(os.path.dirname(__file__), "fault_event_log.json"),
+)
+
+CRITICALITY_CONFIG = {
+    "severity_weight": float(os.getenv("CRITICALITY_SEVERITY_WEIGHT", "0.30")),
+    "frequency_weight": float(os.getenv("CRITICALITY_FREQUENCY_WEIGHT", "0.15")),
+    "duration_weight": float(os.getenv("CRITICALITY_DURATION_WEIGHT", "0.15")),
+    "impact_weight": float(os.getenv("CRITICALITY_IMPACT_WEIGHT", "0.20")),
+    "recurrence_weight": float(os.getenv("CRITICALITY_RECURRENCE_WEIGHT", "0.10")),
+    "dependency_weight": float(os.getenv("CRITICALITY_DEPENDENCY_WEIGHT", "0.10")),
+    "min_percentage": 5.0,
+    "critical_threshold": 75.0,
+    "high_threshold": 50.0,
+    "moderate_threshold": 25.0,
+    "low_threshold": 10.0,
+}
 import numpy as np
 import joblib
 from flask import Flask, jsonify, request
+FAULT_EVENTS   = deque(maxlen=500)  # synchronized fault lifecycle events
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -85,13 +105,6 @@ SLA_TARGETS = {
 HISTORY        = deque(maxlen=30)   # keep 30 polls (~4 min at 8s interval)
 INCIDENT_LOG   = deque(maxlen=200)  # rolling incident feed (persisted to disk)
 
-# ── Recovery tracking ─────────────────────────────────────────────────────────
-# Tracks whether faults were active on the PREVIOUS poll so we can detect the
-# exact poll where recovery happens and flush stale state immediately.
-_prev_fault_states: dict = {}      # {svc: fault_str}  e.g. {"order": "DOWN"}
-_recovery_counter:  int  = 0       # consecutive clean polls after a fault clears
-_RECOVERY_POLLS_NEEDED = 1         # how many clean polls before history is flushed
-
 # Path to persist incident log across restarts
 INCIDENT_LOG_PATH = os.path.join(os.path.dirname(__file__), "incident_log.json")
 
@@ -121,7 +134,43 @@ def _save_incident_log():
     except Exception as e:
         print(f"[WARN] Could not save incident log: {e}")
 
-# ── Model (loaded lazily) ─────────────────────────────────────────────────────
+
+def _load_fault_events():
+    if not os.path.exists(FAULT_EVENT_LOG_PATH):
+        return
+    try:
+        with open(FAULT_EVENT_LOG_PATH, "r") as f:
+            for event in json.load(f)[-500:]:
+                FAULT_EVENTS.append(event)
+        print(f"[INFO] Loaded {len(FAULT_EVENTS)} fault events from disk")
+    except Exception as e:
+        print(f"[WARN] Could not load fault events: {e}")
+
+
+def _save_fault_events():
+    temp_path = f"{FAULT_EVENT_LOG_PATH}.tmp"
+    try:
+        with open(temp_path, "w") as f:
+            json.dump(list(FAULT_EVENTS), f, indent=2)
+        os.replace(temp_path, FAULT_EVENT_LOG_PATH)
+    except Exception as e:
+        print(f"[WARN] Could not save fault events: {e}")
+
+
+def _utc_now():
+    return datetime.now(timezone.utc)
+
+
+def _parse_timestamp(value):
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return _utc_now()
+
+
+_load_fault_events()
+
+# ── Model (Random Forest Classifier on 71 Prometheus features) ────────────────
 _model    = None
 _scaler   = None
 _features = None
@@ -142,17 +191,84 @@ def _load_model():
         print("[WARN] No trained model found. Rule-based fallback active.")
 
 
+def predict_cascade(raw: dict) -> dict:
+    """
+    Feeds the 71 Prometheus-engineered features into the trained RandomForestClassifier.
+    Returns prediction ("CASCADE_FAILURE" or "NORMAL"), cascade_risk (float 0.0 - 1.0),
+    confidence (float), and risk_level ("LOW", "MEDIUM", "HIGH", "CRITICAL").
+    """
+    if _model is None or _scaler is None or _features is None:
+        rl, cr = rule_based_risk(raw)
+        return {
+            "prediction": "CASCADE_FAILURE" if cr >= 0.5 else "NORMAL",
+            "cascade_risk": cr,
+            "confidence": round(max(cr, 1.0 - cr), 4),
+            "risk_level": rl,
+            "model_note": "Rule-based fallback (model not loaded)",
+        }
+
+    # Construct feature vector in exact order of _features
+    vector = [float(raw.get(f, 0.0)) for f in _features]
+    vector = [0.0 if (np.isnan(v) or np.isinf(v)) else v for v in vector]
+
+    import pandas as pd
+    X = pd.DataFrame([vector], columns=_features)
+    X_scaled = _scaler.transform(X)
+    proba = _model.predict_proba(X_scaled)[0]
+
+    # Model classes are [0, 1]
+    if len(_model.classes_) == 2:
+        c1_idx = list(_model.classes_).index(1) if 1 in _model.classes_ else 1
+        cascade_risk = round(float(proba[c1_idx]), 4)
+        confidence = round(float(max(proba)), 4)
+    else:
+        pred = int(_model.predict(X_scaled)[0])
+        cascade_risk = 1.0 if pred == 1 else 0.0
+        confidence = 1.0
+
+    system_max_err = float(raw.get("system_max_error_rate", max([raw.get(f"{s}_error_rate_5xx", 0.0) for s in SERVICES])))
+    system_mean_err = float(raw.get("system_mean_error_rate", 0.0))
+    down_count = int(raw.get("num_services_down", 0))
+
+    # A single-digit error rate (<= 8%) with 0 services down is an isolated transient fluctuation, NOT a cascade failure
+    prediction = "CASCADE_FAILURE" if (cascade_risk >= 0.5 and (system_max_err >= 0.08 or down_count >= 1)) else "NORMAL"
+
+    # Percentage-scaled risk levels:
+    # 0.0% - 8.0% error rate  => LOW (transient fluctuation / minor jitter)
+    # 8.0% - 20.0% error rate => MEDIUM (elevated errors requiring monitoring)
+    # 20.0% - 35.0% error rate => HIGH (major degradation impacting users)
+    # > 35.0% error rate or >= 2 services down => CRITICAL (widespread cascade outage)
+    if down_count >= 2 or system_mean_err >= 0.35 or (cascade_risk >= 0.80 and system_max_err >= 0.30):
+        risk_level = "CRITICAL"
+    elif down_count >= 1 or system_max_err >= 0.20 or (cascade_risk >= 0.65 and system_max_err >= 0.15):
+        risk_level = "HIGH"
+    elif (cascade_risk >= 0.50 and system_max_err >= 0.08) or system_max_err >= 0.08:
+        risk_level = "MEDIUM"
+    else:
+        risk_level = "LOW"
+
+    return {
+        "prediction": prediction,
+        "cascade_risk": cascade_risk,
+        "confidence": confidence,
+        "risk_level": risk_level,
+        "model_note": "RandomForestClassifier (71 Prometheus features)",
+    }
+
+
+# Initialize model and incident log eagerly
+_load_model()
+_load_incident_log()
+
+
 # ── Observability connectivity probes ─────────────────────────────────────────
 def _probe(url: str, path: str = "", timeout: float = 1.5) -> dict:
-    """Probe a URL and return status dict. Latency is rounded to 10ms to avoid jitter."""
+    """Probe a URL and return status dict."""
     import requests as req
     target = url.rstrip("/") + (path or "")
     try:
         r = req.get(target, timeout=timeout)
-        # Round to nearest 10ms so idle-state latency doesn't flicker on every poll
-        raw_ms  = r.elapsed.total_seconds() * 1000
-        lat_ms  = round(raw_ms / 10) * 10
-        return {"connected": r.status_code < 500, "status_code": r.status_code, "latency_ms": lat_ms}
+        return {"connected": r.status_code < 500, "status_code": r.status_code, "latency_ms": round(r.elapsed.total_seconds() * 1000, 1)}
     except Exception as e:
         return {"connected": False, "status_code": None, "latency_ms": None, "error": str(e)[:80]}
 
@@ -179,26 +295,49 @@ def _is_prometheus_up() -> bool:
 
 
 # ── Direct fault-aware service probe ─────────────────────────────────────────
-# Prometheus's `up` metric stays 1 even when a FaultInterceptor DOWN/ERROR
-# fault is active, because /actuator/** is excluded from fault injection.
-# We probe each service directly to get the real operational state.
+# Probe the API Gateway fault status to track active injection metadata.
+# Real traffic and actuator metrics in Prometheus reflect the actual fault impacts.
 def _probe_service_faults() -> dict:
     """
-    For each service, call GET /fault/{svc}-service/status via the gateway.
+    Queries fault status via gateway GET /fault/status or individual /fault/{svc}-service/status.
     Returns { svc: {"fault": "NONE"|"LATENCY"|"ERROR"|"DOWN", "delayMs": int} }
-    Falls back to {"fault": "NONE", "delayMs": 0} on any error.
     """
     import requests as req
     gateway = os.getenv("GATEWAY_URL", "http://localhost:8080")
     result  = {}
+    try:
+        r = req.get(f"{gateway}/fault/status", timeout=1.5)
+        if r.status_code == 200:
+            data = r.json()
+            s_map = {}
+            if isinstance(data.get("services"), list):
+                for item in data.get("services"):
+                    raw = str(item.get("service") or item.get("name") or "")
+                    s_map[raw] = item
+                    s_map[raw.replace("-service", "")] = item
+            for k, v in data.items():
+                if k != "services" and isinstance(v, dict):
+                    s_map[k] = v
+                    s_map[k.replace("-service", "")] = v
+
+            for svc in SERVICES:
+                svc_data = s_map.get(svc) or s_map.get(f"{svc}-service") or {}
+                result[svc] = {
+                    "fault":   str(svc_data.get("fault", svc_data.get("faultType", "NONE"))).upper(),
+                    "delayMs": int(svc_data.get("delayMs", svc_data.get("delay_ms", 0)) or 0),
+                }
+            return result
+    except Exception:
+        pass
+
     for svc in SERVICES:
         try:
-            r = req.get(f"{gateway}/fault/{svc}-service/status", timeout=1.5)
+            r = req.get(f"{gateway}/fault/{svc}-service/status", timeout=1.0)
             if r.status_code == 200:
                 data = r.json()
                 result[svc] = {
-                    "fault":   data.get("fault",   "NONE"),
-                    "delayMs": int(data.get("delayMs", 0)),
+                    "fault":   str(data.get("fault", data.get("faultType", "NONE"))).upper(),
+                    "delayMs": int(data.get("delayMs", data.get("delay_ms", 0)) or 0),
                 }
             else:
                 result[svc] = {"fault": "NONE", "delayMs": 0}
@@ -207,59 +346,32 @@ def _probe_service_faults() -> dict:
     return result
 
 
-# ── Recovery detection ────────────────────────────────────────────────────────
-def _handle_recovery(current_fault_states: dict):
-    """
-    Called every poll. Detects when all faults have cleared and immediately:
-      - Flushes HISTORY so rolling/temporal values reset to clean baseline
-      - Resets the recommendation fingerprint so recs reflect healthy state
-      - Resets the recovery counter
-    This makes the dashboard return to LOW/NORMAL in 1-2 polls (8-16s)
-    instead of waiting for the full 4-minute HISTORY window to drain.
-    """
-    global _prev_fault_states, _recovery_counter, _last_rec_fingerprint, HISTORY
-
-    prev_active = any(v.get("fault", "NONE") != "NONE" for v in _prev_fault_states.values())
-    curr_active = any(v.get("fault", "NONE") != "NONE" for v in current_fault_states.values())
-
-    if prev_active and not curr_active:
-        # Fault just cleared this poll — start the recovery counter
-        _recovery_counter = 1
-        print("[INFO] Fault cleared — starting recovery flush")
-    elif not curr_active and _recovery_counter > 0:
-        _recovery_counter += 1
-    else:
-        _recovery_counter = 0
-
-    # After enough clean polls, flush stale state
-    if _recovery_counter >= _RECOVERY_POLLS_NEEDED:
-        print(f"[INFO] Recovery confirmed after {_recovery_counter} clean poll(s) — flushing HISTORY")
-        HISTORY.clear()
-        _last_rec_fingerprint = {}
-        _recovery_counter     = 0
-
-    # Save current states for next poll comparison
-    _prev_fault_states = dict(current_fault_states)
-
-
 # ── Prometheus scraper ────────────────────────────────────────────────────────
 def _prom(query):
     try:
         import requests as req
+        import math
         r = req.get(f"{PROMETHEUS_URL}/api/v1/query",
-                    params={"query": query}, timeout=1.0)
-        res = r.json().get("data", {}).get("result", [])
-        return float(res[0]["value"][1]) if res else 0.0
+                    params={"query": query}, timeout=1.5)
+        if r.status_code == 200:
+            res = r.json().get("data", {}).get("result", [])
+            if res and len(res) > 0:
+                val = float(res[0]["value"][1])
+                return 0.0 if (math.isnan(val) or math.isinf(val)) else val
+        return 0.0
     except Exception:
         return 0.0
 
 
 def scrape() -> dict:
+    # 1m window rates and histogram quantiles for real-time responsiveness
     queries = {
-        "request_rate":   'sum(rate(http_server_requests_seconds_count{{application="{s}-service"}}[30s]))',
-        "error_rate_5xx": 'sum(rate(http_server_requests_seconds_count{{application="{s}-service",status=~"5.."}}[30s]))',
-        "p99_latency_s":  'histogram_quantile(0.99,sum(rate(http_server_requests_seconds_bucket{{application="{s}-service"}}[30s]))by(le))',
-        "p50_latency_s":  'histogram_quantile(0.50,sum(rate(http_server_requests_seconds_bucket{{application="{s}-service"}}[30s]))by(le))',
+        "request_rate":   'sum(rate(http_server_requests_seconds_count{{application="{s}-service"}}[1m]))',
+        "error_rate_5xx": 'sum(rate(http_server_requests_seconds_count{{application="{s}-service",status=~"5.."}}[1m]))',
+        "error_rate_4xx": 'sum(rate(http_server_requests_seconds_count{{application="{s}-service",status=~"4.."}}[1m]))',
+        "p99_latency_s":  'histogram_quantile(0.99,sum(rate(http_server_requests_seconds_bucket{{application="{s}-service"}}[1m]))by(le))',
+        "p95_latency_s":  'histogram_quantile(0.95,sum(rate(http_server_requests_seconds_bucket{{application="{s}-service"}}[1m]))by(le))',
+        "p50_latency_s":  'histogram_quantile(0.50,sum(rate(http_server_requests_seconds_bucket{{application="{s}-service"}}[1m]))by(le))',
         "jvm_heap_mb":    'jvm_memory_used_bytes{{application="{s}-service",area="heap"}}/1048576',
         "active_threads": 'tomcat_threads_busy_threads{{application="{s}-service"}}',
         "service_up":     'up{{job="{s}-service"}}',
@@ -277,52 +389,36 @@ def scrape() -> dict:
             for k, q in queries.items():
                 raw[f"{svc}_{k}"] = _prom(q.format(s=svc))
 
-    # ── Fault-aware override ───────────────────────────────────────────────────
-    # Prometheus's `up` metric stays 1 even when DOWN/ERROR/LATENCY faults are
-    # active because /actuator/** is excluded from FaultInterceptor.
-    # Query the gateway fault-status endpoint directly and synthesise realistic
-    # metric values so the ML pipeline + dashboard reflect real injected state.
-    fault_states = {svc: {"fault": "NONE", "delayMs": 0} for svc in SERVICES}
+    # ── Fault-aware metadata & controlled DOWN detection ──────────────────────
+    # Real metrics come directly from Prometheus above.
+    # We record fault metadata, and if a service is in controlled DOWN state (503),
+    # we reflect service_up = 0.0.
     try:
         fault_states = _probe_service_faults()
         for svc, fs in fault_states.items():
             fault = fs.get("fault", "NONE")
             delay = fs.get("delayMs", 0)
+            raw[f"{svc}_fault"] = fault
+            raw[f"{svc}_fault_delay_ms"] = delay
 
             if fault == "DOWN":
-                # Service is fully down — mark it and inject high error signal
-                raw[f"{svc}_service_up"]     = 0.0
-                raw[f"{svc}_error_rate_5xx"] = max(raw.get(f"{svc}_error_rate_5xx", 0.0), 1.0)
-
-            elif fault == "ERROR":
-                # Service responds with 500 — stays up but has high error rate
-                raw[f"{svc}_service_up"]     = 1.0
-                raw[f"{svc}_error_rate_5xx"] = max(raw.get(f"{svc}_error_rate_5xx", 0.0), 0.5)
-
-            elif fault == "LATENCY" and delay > 0:
-                # Service is up but slow — inject synthetic latency
-                raw[f"{svc}_service_up"]   = 1.0
-                synthetic_p99 = delay / 1000.0          # ms → seconds
-                raw[f"{svc}_p99_latency_s"] = max(raw.get(f"{svc}_p99_latency_s", 0.0), synthetic_p99)
-                raw[f"{svc}_p50_latency_s"] = max(raw.get(f"{svc}_p50_latency_s", 0.0), synthetic_p99 * 0.8)
+                raw[f"{svc}_service_up"] = 0.0
 
     except Exception as e:
         print(f"[WARN] Fault-aware probe failed: {e}")
 
-    # ── System-level aggregates ────────────────────────────────────────────────
-    # Apply noise floor to scraped per-service metrics before aggregation.
-    # Prometheus bucket arithmetic produces tiny non-zero floats (~1e-7) even
-    # when no requests are flowing. Clamp them to 0 so idle systems stay at 0%.
-    ERROR_NOISE_FLOOR   = 0.001
-    LATENCY_NOISE_FLOOR = 0.005
+    # Ensure defaults and compute per-service derived features for the 71-feature model
     for svc in SERVICES:
-        ek = f"{svc}_error_rate_5xx"
-        pk = f"{svc}_p99_latency_s"
-        p5k = f"{svc}_p50_latency_s"
-        raw[ek]  = raw[ek]  if raw.get(ek,  0) >= ERROR_NOISE_FLOOR   else 0.0
-        raw[pk]  = raw[pk]  if raw.get(pk,  0) >= LATENCY_NOISE_FLOOR else 0.0
-        raw[p5k] = raw[p5k] if raw.get(p5k, 0) >= LATENCY_NOISE_FLOOR else 0.0
+        raw.setdefault(f"{svc}_fault", "NONE")
+        raw.setdefault(f"{svc}_fault_delay_ms", 0)
+        req_rate = float(raw.get(f"{svc}_request_rate", 0.0))
+        err_5xx  = float(raw.get(f"{svc}_error_rate_5xx", 0.0))
+        p99      = float(raw.get(f"{svc}_p99_latency_s", 0.0))
+        p50      = float(raw.get(f"{svc}_p50_latency_s", 0.0))
+        raw[f"{svc}_error_ratio"]   = float(err_5xx / (req_rate + 1e-9))
+        raw[f"{svc}_latency_spike"] = float(p99 / (p50 + 1e-9))
 
+    # ── System-level aggregates ────────────────────────────────────────────────
     err_vals = [raw.get(f"{s}_error_rate_5xx", 0.0) for s in SERVICES]
     p99_vals = [raw.get(f"{s}_p99_latency_s",  0.0) for s in SERVICES]
     up_vals  = [raw.get(f"{s}_service_up",      1.0) for s in SERVICES]
@@ -333,10 +429,6 @@ def scrape() -> dict:
     raw["system_mean_p99_latency"] = float(np.mean(p99_vals))
     raw["num_services_down"]       = int(sum(1 for v in up_vals if v == 0))
     raw["prometheus_connected"]    = prom_up
-
-    # ── Recovery detection: flush stale history the moment faults clear ────────
-    _handle_recovery(fault_states if prom_up else {})
-
     return raw
 
 
@@ -378,8 +470,6 @@ def temporal_analysis(raw: dict) -> dict:
     now = time.time()
     HISTORY.append({"t": now, "raw": raw})
     if len(HISTORY) < 2:
-        # Single entry — either first poll ever, or HISTORY was just flushed on recovery.
-        # Return clean zero deltas so the dashboard shows immediate recovery.
         return {
             "delta_error_rate":     0.0,
             "delta_latency":        0.0,
@@ -387,7 +477,7 @@ def temporal_analysis(raw: dict) -> dict:
             "rolling_3_std_error":  0.0,
             "acceleration_error":   0.0,
             "propagation_onset":    [],
-            "history_length":       len(HISTORY),
+            "history_length":       1,
         }
     curr = HISTORY[-1]["raw"]
     prev = HISTORY[-2]["raw"]
@@ -431,8 +521,6 @@ def temporal_analysis(raw: dict) -> dict:
 
 def sla_compliance(raw: dict) -> dict:
     """Compute SLA compliance status for each service."""
-    ERROR_NOISE_FLOOR   = 0.001
-    LATENCY_NOISE_FLOOR = 0.005
     results = {}
     overall_breaches = 0
     for svc in SERVICES:
@@ -442,17 +530,14 @@ def sla_compliance(raw: dict) -> dict:
         p99     = float(raw.get(f"{svc}_p99_latency_s",   0.0))
         req_rt  = float(raw.get(f"{svc}_request_rate",    0.0))
 
-        # Apply noise floors so idle services always show 0% budget consumed
-        err = err if err >= ERROR_NOISE_FLOOR   else 0.0
-        p99 = p99 if p99 >= LATENCY_NOISE_FLOOR else 0.0
-
-        uptime_pct     = 100.0 if up == 1 else 0.0
-        max_err        = targets["max_error_rate"]
-        err_budget_pct = round((err / max_err) * 100, 1) if err > 0 else 0.0
-        err_budget_pct = min(100.0, err_budget_pct)
+        # Uptime % — instant window (1 = 100%, 0 = 0%)
+        uptime_pct    = 100.0 if up == 1 else 0.0
+        # Error budget: what % of allowed budget is consumed
+        max_err       = targets["max_error_rate"]
+        err_budget_pct = min(100.0, round((err / max(max_err, 1e-6)) * 100, 1))
+        # Latency budget consumption
         max_p99        = targets["max_p99_s"]
-        lat_budget_pct = round((p99 / max_p99) * 100, 1) if p99 > 0 else 0.0
-        lat_budget_pct = min(100.0, lat_budget_pct)
+        lat_budget_pct = min(100.0, round((p99 / max(max_p99, 1e-6)) * 100, 1))
 
         breaches = []
         if up == 0:
@@ -598,21 +683,19 @@ def feature_importances() -> list:
 
 
 def root_cause(raw: dict) -> list:
-    ERROR_NOISE_FLOOR   = 0.001   # req/s
-    LATENCY_NOISE_FLOOR = 0.005   # seconds
     causes = []
     for svc in SERVICES:
         err = float(raw.get(f"{svc}_error_rate_5xx", 0))
         p99 = float(raw.get(f"{svc}_p99_latency_s",  0))
         up  = float(raw.get(f"{svc}_service_up",      1))
-        # Apply noise floor before evaluating
-        err = err if err >= ERROR_NOISE_FLOOR   else 0.0
-        p99 = p99 if p99 >= LATENCY_NOISE_FLOOR else 0.0
-        if up == 0:
+        fault = str(raw.get(f"{svc}_fault", "NONE")).upper()
+        if up == 0 or fault == "DOWN":
             causes.append({"service": svc, "reason": "SERVICE_DOWN",    "metric": "service_up",     "value": 0})
-        elif err > 0.01:
+        elif err > 0.08 or fault == "ERROR":
             causes.append({"service": svc, "reason": "HIGH_ERROR_RATE", "metric": "error_rate_5xx", "value": round(err, 4)})
-        elif p99 > 1.5:
+        elif err > 0.01:
+            causes.append({"service": svc, "reason": "ELEVATED_ERROR_RATE", "metric": "error_rate_5xx", "value": round(err, 4)})
+        elif p99 > 0.8 or fault == "LATENCY":
             causes.append({"service": svc, "reason": "HIGH_LATENCY",    "metric": "p99_latency_s",  "value": round(p99, 4)})
     causes.sort(key=lambda x: (x["reason"] == "SERVICE_DOWN", x.get("value", 0)), reverse=True)
     return causes[:3]
@@ -620,11 +703,9 @@ def root_cause(raw: dict) -> list:
 
 def structured_recommendations(causes: list, raw: dict, risk_level: str, sla: dict) -> list:
     """
-    Recommendations:
-      1. Internet/MongoDB diagnosis ONLY when signals are definitive
-         (all services down, OR all UP + all have errors with NO active faults)
-      2. Per root-cause: precise failure cause + solution for that specific service
-      3. Healthy: one confirmation message
+    Returns structured recommendation objects. Deduplicates: same recommendation
+    is not repeated on consecutive polls while the same fault is still active.
+    A '_repeat' flag is set so the frontend can dim/hide already-seen recs.
     """
     global _last_rec_fingerprint
     recs     = []
@@ -635,7 +716,7 @@ def structured_recommendations(causes: list, raw: dict, risk_level: str, sla: di
         nonlocal priority
         fp_key = (service, title[:50])
         new_fps[fp_key] = True
-        recs.append({
+        rec = {
             "priority":    priority,
             "severity":    severity,
             "category":    category,
@@ -644,280 +725,117 @@ def structured_recommendations(causes: list, raw: dict, risk_level: str, sla: di
             "description": description,
             "command":     command,
             "_repeat":     bool(_last_rec_fingerprint.get(fp_key)),
-        })
+        }
+        recs.append(rec)
         priority += 1
 
-    # ── Pre-compute metrics for every service ─────────────────────────────────
-    svc_metrics = {}
-    for s in SERVICES:
-        svc_metrics[s] = {
-            "up":   float(raw.get(f"{s}_service_up",      1)),
-            "err":  float(raw.get(f"{s}_error_rate_5xx",  0)),
-            "p99":  float(raw.get(f"{s}_p99_latency_s",   0)),
-            "rr":   float(raw.get(f"{s}_request_rate",    0)),
-            "heap": float(raw.get(f"{s}_jvm_heap_mb",     0)),
-            "thrd": int(raw.get(f"{s}_active_threads",    0)),
-        }
-
-    n_down        = int(raw.get("num_services_down", 0))
-    down_svcs     = [s for s in SERVICES if svc_metrics[s]["up"] == 0]
-    all_down      = len(down_svcs) == len(SERVICES)
-    most_down     = len(down_svcs) >= len(SERVICES) // 2 + 1
-
-    # Services that are UP but have a significantly elevated error rate
-    high_err_up   = [s for s in SERVICES if svc_metrics[s]["up"] == 1
-                     and svc_metrics[s]["err"] > 0.05]
-
-    # Check if any fault injection is active (DOWN/ERROR/LATENCY via fault states)
-    # A widespread error from fault injection is intentional — don't misdiagnose as MongoDB
-    any_fault_active = any(
-        raw.get(f"{s}_service_up", 1) == 0
-        or raw.get(f"{s}_error_rate_5xx", 0) > 0.3   # very high = likely injected
-        for s in SERVICES
-    )
-
-    # "Truly widespread" = ALL services UP + ALL (or all-but-one) have high errors
-    # This is the internet-off pattern. If only some have errors it's a real failure.
-    truly_widespread = (
-        n_down == 0
-        and len(high_err_up) >= len(SERVICES) - 1  # all or all-but-one
-    )
-
-    # ── 1. Connectivity-only recommendations (very specific conditions) ────────
-    if all_down:
-        _add(
-            "CRITICAL", "IMMEDIATE", "system",
-            "All services are DOWN simultaneously",
-            "Root cause: All 6 services went down at the same time. "
-            "This is always a shared infrastructure problem, not individual crashes.\n\n"
-            "Most likely causes (in order):\n"
-            "• No internet connection — MongoDB Atlas (cloud DB) is unreachable\n"
-            "• MongoDB Atlas cluster is paused (free-tier auto-pauses after 60 min inactivity)\n"
-            "• Docker Desktop stopped or crashed\n\n"
-            "Fix:\n"
-            "1. Check internet: open any website in your browser\n"
-            "2. If internet is fine, go to cloud.mongodb.com → check Cluster0 → Resume if paused\n"
-            "3. Then: docker compose restart",
-            "ping -n 3 cluster0.f46nymd.mongodb.net",
-        )
-        _last_rec_fingerprint = new_fps
-        return recs
-
-    elif truly_widespread:
-        err_summary = " | ".join(
-            f"{SERVICE_LABELS.get(s,s)}: {svc_metrics[s]['err']:.3f}/s"
-            for s in high_err_up
-        )
-        _add(
-            "CRITICAL", "IMMEDIATE", "system",
-            "All services UP but all returning errors simultaneously",
-            f"Root cause: All running services are returning HTTP 500 errors at the "
-            f"same time ({err_summary}). Services are alive but every database call "
-            f"is failing.\n\n"
-            "This specific pattern means the shared MongoDB Atlas connection is broken "
-            "while containers remain running. Individual service bugs NEVER cause all "
-            "services to fail simultaneously.\n\n"
-            "Fix:\n"
-            "1. Check internet — ping cluster0.f46nymd.mongodb.net\n"
-            "2. Go to cloud.mongodb.com → verify Cluster0 is ACTIVE (not paused)\n"
-            "3. Services will auto-recover within 1–2 polls once DB is reachable again",
-            "ping -n 3 cluster0.f46nymd.mongodb.net",
-        )
-        _last_rec_fingerprint = new_fps
-        return recs
-
-    elif most_down:
-        down_names = ", ".join(SERVICE_LABELS.get(s, s) for s in down_svcs)
-        _add(
-            "CRITICAL", "IMMEDIATE", "system",
-            f"{len(down_svcs)} services DOWN at the same time",
-            f"Root cause: {down_names} all went down simultaneously.\n"
-            "Multiple simultaneous downs = shared dependency problem.\n\n"
-            "Check:\n"
-            "• Internet and MongoDB Atlas reachable?\n"
-            "• MONGO_USER / MONGO_PASS correct in .env?\n"
-            "• Docker network healthy?",
-            "docker compose logs --tail 20 2>&1 | findstr /i \"UnknownHost MongoSocket\"",
-        )
-
-    # ── 2. Per root-cause: targeted failure-specific recommendation ───────────
+    # ── Per root-cause recommendations ────────────────────────────────────────
     for c in causes:
         svc   = c["service"]
         label = SERVICE_LABELS.get(svc, svc)
-        m     = svc_metrics[svc]
-        err, p99, rr, heap, thrd = m["err"], m["p99"], m["rr"], m["heap"], m["thrd"]
 
         if c["reason"] == "SERVICE_DOWN":
-            port_map = {"order":8081,"payment":8082,"inventory":8083,
-                        "shipping":8084,"delivery":8085,"notification":8086}
-            port = port_map.get(svc, "?")
-
-            if len(down_svcs) == 1:
-                # Only this service is down — isolated, not a shared problem
-                _add(
-                    "CRITICAL", "IMMEDIATE", svc,
-                    f"{label} crashed (only this service is down)",
-                    f"Root cause: {label} is the only service that is DOWN. "
-                    f"This is an isolated crash, not a network issue.\n\n"
-                    f"Check the logs for the actual exception:\n"
-                    f"  docker logs {svc}-service --tail 80\n\n"
-                    f"Common causes for isolated Spring Boot crash:\n"
-                    f"  • Application startup exception (misconfigured bean, missing env var)\n"
-                    f"  • Out-of-memory: look for 'java.lang.OutOfMemoryError' in logs\n"
-                    f"  • Port {port} already in use: look for 'Address already in use'\n"
-                    f"  • MongoDB authentication failure for this service's DB user",
-                    f"docker logs {svc}-service --tail 80",
-                )
-            else:
-                # Multiple services down — already handled by the shared-cause check above,
-                # but add a per-service action
-                _add(
-                    "CRITICAL", "IMMEDIATE", svc,
-                    f"Restart {label} once shared issue is resolved",
-                    f"Root cause: {label} is down as part of a multi-service failure. "
-                    f"Resolve the shared connectivity issue first (see system recommendation), "
-                    f"then restart this service.",
-                    f"docker restart {svc}-service",
-                )
+            _add(
+                "CRITICAL", "IMMEDIATE", svc,
+                f"Restart {label} — returning HTTP 503",
+                f"{label} is completely DOWN (service_up=0). All upstream callers are "
+                f"accumulating errors. Immediate restart required.",
+                f"docker restart {svc}-service",
+            )
+            _add(
+                "CRITICAL", "IMMEDIATE", svc,
+                f"Inspect {label} crash logs",
+                f"Check recent logs for crash reason (OOM, DB timeout, port conflict). "
+                f"Look for FATAL/ERROR lines in the last 100 lines.",
+                f"docker logs {svc}-service --tail 100",
+            )
 
         elif c["reason"] == "HIGH_ERROR_RATE":
-            sla_max   = SLA_TARGETS[svc]["max_error_rate"]
-            err_pct   = round((err / max(rr, 0.001)) * 100, 1) if rr > 0 else 0
-
-            # Determine the most likely cause from real metrics — not MongoDB by default
-            if heap > 450:
-                cause = (
-                    f"JVM heap is very high ({heap:.0f} MB). The JVM is under memory "
-                    f"pressure, causing slow GC cycles that make requests time out and "
-                    f"return HTTP 500."
-                )
-                fix = (
-                    f"Increase heap limit in docker-compose.yml for {svc}-service:\n"
-                    f"  JAVA_OPTS: \"-Xmx768m -XX:+UseG1GC\"\n"
-                    f"Or check for memory leaks: look for objects accumulating in logs."
-                )
-                cmd = f"docker stats {svc}-service --no-stream"
-
-            elif thrd > 60:
-                cause = (
-                    f"Active thread count is very high ({thrd} threads). "
-                    f"The Tomcat thread pool is saturated — incoming requests are being "
-                    f"rejected or timing out because all threads are busy."
-                )
-                fix = (
-                    f"Add to {svc}-service application.properties:\n"
-                    f"  server.tomcat.threads.max=300\n"
-                    f"Also check if downstream calls are blocking threads (slow DB, slow dependency)."
-                )
-                cmd = f"docker logs {svc}-service --tail 50"
-
-            elif rr > 0 and err_pct > 50:
-                cause = (
-                    f"More than half of requests are failing ({err_pct:.1f}% error rate, "
-                    f"{err:.4f} errors/s). This is a code-level or DB-level issue "
-                    f"specific to {label} — other services are not affected."
-                )
-                fix = (
-                    f"Check the actual exception in {label} logs:\n"
-                    f"  docker logs {svc}-service --tail 50\n"
-                    f"Look for: NullPointerException, MongoException, 404 routes, "
-                    f"missing environment variables, or recent code deployment issues."
-                )
-                cmd = f"docker logs {svc}-service --tail 50"
-
-            else:
-                cause = (
-                    f"Error rate is {err:.4f}/s ({err_pct:.1f}% of {rr:.3f} req/s). "
-                    f"Service is UP but a portion of requests are failing."
-                )
-                fix = (
-                    f"Inspect logs to find the specific exception causing the 5xx errors:\n"
-                    f"  docker logs {svc}-service --tail 50\n"
-                    f"Common causes: invalid request data, missing dependency, DB query failure."
-                )
-                cmd = f"docker logs {svc}-service --tail 50"
-
+            sla_max         = SLA_TARGETS[svc]["max_error_rate"]
+            budget_consumed = round((c["value"] / max(sla_max, 1e-6)) * 100, 1)
             _add(
                 "HIGH", "IMMEDIATE", svc,
-                f"{label} — {err:.4f}/s error rate (SLA: {sla_max}/s)",
-                f"Root cause: {cause}\n\nFix: {fix}",
-                cmd,
+                f"{label} error rate exceeds SLA threshold",
+                f"Current error rate: {c['value']:.4f} req/s ({budget_consumed}% of SLA error "
+                f"budget consumed). SLA limit: {sla_max} req/s. Check MongoDB Atlas connectivity "
+                f"and review recent deployments for breaking changes.",
+                f"docker logs {svc}-service --tail 50",
+            )
+            _add(
+                "HIGH", "SHORT_TERM", svc,
+                f"Add circuit breaker for {label}",
+                f"Prevent cascading failures by wrapping {label} calls with a Resilience4j "
+                f"circuit breaker. Open the circuit when error rate exceeds {sla_max * 100:.1f}% "
+                f"to stop propagation to upstream services.",
+                None,
             )
 
         elif c["reason"] == "HIGH_LATENCY":
-            sla_max = SLA_TARGETS[svc]["max_p99_s"]
-
-            if heap > 450:
-                cause = (
-                    f"JVM heap is very high ({heap:.0f} MB), causing stop-the-world "
-                    f"GC pauses that add hundreds of milliseconds to each request. "
-                    f"P99 is {p99:.3f}s vs SLA limit of {sla_max}s."
-                )
-                fix = (
-                    f"Add GC tuning to docker-compose.yml for {svc}-service:\n"
-                    f"  JAVA_OPTS: \"-Xmx512m -XX:+UseG1GC -XX:MaxGCPauseMillis=200\""
-                )
-                cmd = f"docker stats {svc}-service --no-stream"
-
-            elif thrd > 40:
-                cause = (
-                    f"Active thread count is high ({thrd} threads). Requests are "
-                    f"waiting for a DB connection or blocked on a slow downstream call. "
-                    f"P99 is {p99:.3f}s vs SLA limit of {sla_max}s."
-                )
-                fix = (
-                    f"Check what is blocking threads in {label}:\n"
-                    f"  docker exec {svc}-service jcmd 1 Thread.print\n"
-                    f"Also consider increasing MongoDB connection pool size in application.properties:\n"
-                    f"  spring.data.mongodb.uri — append &maxPoolSize=50"
-                )
-                cmd = f"docker logs {svc}-service --tail 30"
-
-            elif p99 > sla_max * 3:
-                cause = (
-                    f"P99 is {p99:.3f}s — {round(p99/sla_max, 1)}× over the SLA limit of {sla_max}s. "
-                    f"Requests are extremely slow. Most likely cause: missing database index "
-                    f"on a frequently queried field, or the MongoDB Atlas M0 free-tier is "
-                    f"throttling query throughput."
-                )
-                fix = (
-                    f"1. Open MongoDB Atlas → Performance Advisor → check index recommendations.\n"
-                    f"2. Add indexes on fields used in find/query operations for the "
-                    f"'{svc}_db' database.\n"
-                    f"3. If using M0 free tier, consider upgrading to M2+ to avoid throttling."
-                )
-                cmd = f"docker logs {svc}-service --tail 30"
-
-            else:
-                cause = (
-                    f"P99 latency is {p99:.3f}s vs SLA limit of {sla_max}s. "
-                    f"Requests are slower than expected — likely a slow DB query or "
-                    f"a slow call to a downstream service."
-                )
-                fix = (
-                    f"Check logs for slow query warnings:\n"
-                    f"  docker logs {svc}-service --tail 30\n"
-                    f"Look for queries taking >100ms or downstream timeout warnings."
-                )
-                cmd = f"docker logs {svc}-service --tail 30"
-
+            sla_max         = SLA_TARGETS[svc]["max_p99_s"]
+            budget_consumed = round((c["value"] / max(sla_max, 1e-6)) * 100, 1)
             _add(
                 "MEDIUM", "IMMEDIATE", svc,
-                f"{label} — P99 {p99:.3f}s (SLA: {sla_max}s)",
-                f"Root cause: {cause}\n\nFix: {fix}",
-                cmd,
+                f"{label} P99 latency exceeds SLA budget",
+                f"P99 latency: {c['value']:.3f}s — {budget_consumed}% of the {sla_max}s SLA "
+                f"budget consumed. Primary causes: missing DB indexes, N+1 query patterns, or "
+                f"JVM GC pressure. Check active thread count and MongoDB slow query logs.",
+                f"docker exec {svc}-service jcmd 1 Thread.print",
             )
 
-    # ── 3. System healthy ─────────────────────────────────────────────────────
-    if not causes and not truly_widespread and not all_down and not most_down:
+    # ── SLA breach recommendations (services not already in root causes) ──────
+    cause_svcs   = {c["service"] for c in causes}
+    sla_services = sla.get("services", {})
+    for svc, sla_info in sla_services.items():
+        if not sla_info["sla_compliant"] and svc not in cause_svcs:
+            label = SERVICE_LABELS.get(svc, svc)
+            for breach in sla_info["breaches"]:
+                _add(
+                    "MEDIUM", "SHORT_TERM", svc,
+                    f"SLA breach: {label} — {breach['type'].replace('_', ' ').title()}",
+                    breach["message"],
+                    None,
+                )
+
+    # ── System-level recommendations for HIGH / CRITICAL ─────────────────────
+    if risk_level in ("HIGH", "CRITICAL"):
         _add(
-            "LOW", "PREVENTIVE", "system",
-            "All services healthy — no failures detected",
-            "All microservices are operating within normal thresholds. "
-            "No failures, no SLA breaches, no cascade propagation active.",
+            "HIGH", "IMMEDIATE", "system",
+            "Activate upstream circuit breakers across call chain",
+            f"System risk is {risk_level}. Cascade propagation is in progress. Activate "
+            f"Resilience4j circuit breakers on all services calling into failing services. "
+            f"Call chain: Order → Inventory → Payment → Shipping → Delivery → Notification.",
+            "curl -X POST http://localhost:8080/actuator/circuitbreakers/open",
+        )
+
+    if risk_level == "CRITICAL":
+        _add(
+            "CRITICAL", "IMMEDIATE", "system",
+            "Initiate disaster recovery runbook",
+            "CRITICAL cascade failure detected. Escalate to on-call engineer immediately. "
+            "Consider enabling read-only mode on the frontend to prevent new orders until "
+            "services stabilise. Check MongoDB Atlas cluster health dashboard.",
             None,
         )
 
+    # ── Preventive recommendations when system is healthy ────────────────────
+    if not causes:
+        _add(
+            "LOW", "PREVENTIVE", "system",
+            "All services operating within normal thresholds",
+            "No anomalies detected. Consider running a chaos experiment to validate resilience: "
+            "inject a latency spike on inventory-service and observe propagation detection time.",
+            "curl -X POST http://localhost:8080/fault/inventory-service/configure "
+            "-H \"Content-Type: application/json\" -d '{\"fault\":\"LATENCY\",\"delayMs\":2000}'",
+        )
+        _add(
+            "LOW", "PREVENTIVE", "system",
+            "Review and tighten SLA targets",
+            "System is healthy. Review current SLA targets against the last 7 days of Grafana "
+            "dashboard data. Consider tightening P99 latency budgets for earlier warning detection.",
+            None,
+        )
+
+    # Update fingerprint for next cycle
     _last_rec_fingerprint = new_fps
     return recs
 
@@ -985,22 +903,741 @@ def _append_incident(raw: dict, causes: list, risk_level: str):
 
 
 def rule_based_risk(raw: dict) -> tuple:
-    n_down   = int(raw.get("num_services_down", 0))
-    err_rate = float(raw.get("system_mean_error_rate", 0))
-    max_err  = float(raw.get("system_max_error_rate",  0))
-    p99      = float(raw.get("system_max_p99_latency", 0))
+    impact = impact_analysis(raw)
+    risk = impact["affected_percentage"] / 100.0
+    if risk >= 0.75:
+        return "CRITICAL", round(risk, 4)
+    if risk >= 0.40:
+        return "HIGH", round(risk, 4)
+    if risk >= 0.08:
+        return "MEDIUM", round(risk, 4)
+    return "LOW", round(risk, 4)
 
-    # If HISTORY is empty (just flushed by recovery) and no faults active → LOW immediately
-    if len(HISTORY) == 0 and n_down == 0 and max_err == 0:
-        return "LOW", 0.05
 
-    if n_down >= 2 or max_err > 0.3:
-        return "CRITICAL", 0.90
-    if n_down == 1 or max_err > 0.05 or err_rate > 0.05:
-        return "HIGH", 0.75
-    if max_err > 0.01 or p99 > 1.5:
-        return "MEDIUM", 0.45
-    return "LOW", 0.05
+def impact_analysis(raw: dict) -> dict:
+    """Calculate impact from the observed service state with graduated thresholds."""
+    impacts = {}
+    for svc in SERVICES:
+        fault = str(raw.get(f"{svc}_fault", "NONE")).upper()
+        up = float(raw.get(f"{svc}_service_up", 1.0))
+        err = float(raw.get(f"{svc}_error_rate_5xx", 0.0))
+        p99 = float(raw.get(f"{svc}_p99_latency_s", 0.0))
+        delay = float(raw.get(f"{svc}_fault_delay_ms", 0.0)) / 1000.0
+        target = SLA_TARGETS[svc]
+
+        # Graduated error impact:
+        # err <= max_error_rate: 0.0%
+        # 0.01 < err <= 0.08 (up to 8%): 5% to 15% (minor transient jitter)
+        # 0.08 < err <= 0.20 (8% to 20%): 15% to 40% (moderate degradation)
+        # 0.20 < err <= 0.35 (20% to 35%): 40% to 70% (high degradation)
+        # err > 0.35 (> 35%): 70% to 100% (critical failure)
+        if err <= target["max_error_rate"]:
+            error_impact = 0.0
+        elif err <= 0.08:
+            fraction = (err - target["max_error_rate"]) / max(0.08 - target["max_error_rate"], 0.001)
+            error_impact = 5.0 + fraction * 10.0
+        elif err <= 0.20:
+            fraction = (err - 0.08) / 0.12
+            error_impact = 15.0 + fraction * 25.0
+        elif err <= 0.35:
+            fraction = (err - 0.20) / 0.15
+            error_impact = 40.0 + fraction * 30.0
+        else:
+            fraction = min(1.0, (err - 0.35) / 0.25)
+            error_impact = 70.0 + fraction * 30.0
+
+        # Graduated latency impact
+        effective_delay = max(p99, delay)
+        if effective_delay <= target["max_p99_s"] and delay <= 0:
+            latency_impact = 0.0
+        elif effective_delay <= 1.0:
+            latency_impact = 10.0 + (effective_delay / 1.0) * 15.0
+        elif effective_delay <= 3.0:
+            latency_impact = 25.0 + ((effective_delay - 1.0) / 2.0) * 25.0
+        else:
+            latency_impact = min(90.0, 50.0 + ((effective_delay - 3.0) / 3.0) * 35.0)
+
+        if fault == "DOWN" or up == 0:
+            impact = 100.0
+        elif fault == "ERROR":
+            impact = max(50.0, error_impact)
+        else:
+            impact = max(latency_impact, error_impact)
+
+        impacts[svc] = round(min(100.0, max(0.0, impact)), 1)
+
+    affected = [value for value in impacts.values() if value > 0]
+    return {
+        "services": impacts,
+        "affected_services": len(affected),
+        "affected_percentage": round(float(np.mean(list(impacts.values()))), 1),
+    }
+
+
+def _severity_for_fault(fault: str, impact: float) -> str:
+    if fault == "DOWN" or impact >= 75:
+        return "CRITICAL"
+    if fault == "ERROR" or impact >= 45:
+        return "MAJOR"
+    if fault == "LATENCY" or impact >= 20:
+        return "MODERATE"
+    return "MINOR"
+
+
+def _active_fault_events():
+    latest = {}
+    for event in reversed(FAULT_EVENTS):
+        service = event.get("service")
+        if service and service not in latest:
+            latest[service] = event
+    return [event for event in latest.values() if event.get("status") in ("ACTIVE", "INJECTED")]
+
+
+def criticality_analysis(raw: dict, impact: dict) -> dict:
+    """Return a deterministic, explainable system criticality score."""
+    active_events = _active_fault_events()
+    active_services = {event.get("service") for event in active_events}
+    current_faults = {
+        svc: str(raw.get(f"{svc}_fault", "NONE")).upper()
+        for svc in SERVICES
+    }
+    active_services.update(svc for svc, fault in current_faults.items() if fault != "NONE")
+
+    if not active_services and impact["affected_percentage"] == 0:
+        return {
+            "percentage": CRITICALITY_CONFIG["min_percentage"],
+            "severity": "INFORMATIONAL",
+            "reasons": ["No active fault or threshold breach detected"],
+            "components": {"severity": 0, "frequency": 0, "duration": 0, "impact": 0, "recurrence": 0, "dependency": 0},
+        }
+
+    severity_values = []
+    frequency_values = []
+    duration_values = []
+    recurrence_values = []
+    reasons = []
+    now = _utc_now()
+    recent_window = [
+        event for event in FAULT_EVENTS
+        if event.get("status") in ("ACTIVE", "INJECTED") and (now - _parse_timestamp(event.get("timestamp"))).total_seconds() <= 600
+    ]
+
+    for svc in active_services:
+        fault = current_faults.get(svc, "NONE")
+        service_impact = impact["services"].get(svc, 0.0)
+        severity_values.append({"MINOR": 20, "MODERATE": 50, "MAJOR": 75, "CRITICAL": 100}[_severity_for_fault(fault, service_impact)])
+        service_events = [event for event in recent_window if event.get("service") == svc]
+        frequency_values.append(min(100.0, len(service_events) * 25.0))
+        same_faults = [event for event in recent_window if event.get("service") == svc and event.get("fault") == fault]
+        recurrence_values.append(min(100.0, max(0, len(same_faults) - 1) * 35.0))
+
+        latest = next((event for event in active_events if event.get("service") == svc), None)
+        if latest:
+            duration_s = max(0.0, (now - _parse_timestamp(latest.get("timestamp"))).total_seconds())
+            duration_values.append(min(100.0, duration_s / 300.0 * 100.0))
+            if duration_s >= 60:
+                reasons.append(f"{svc} fault has remained active for {round(duration_s / 60, 1)} minutes")
+        else:
+            duration_values.append(0.0)
+
+        if service_impact > 0:
+            reasons.append(f"{svc} impact is {service_impact:.1f}% from its observed fault and metrics")
+
+    affected = set(svc for svc, value in impact["services"].items() if value > 0)
+    dependency_targets = {dst for src, dst in ARCH_EDGES if src in active_services}
+    dependency_score = min(100.0, (len(affected & dependency_targets) / max(1, len(SERVICES))) * 100.0)
+    if dependency_targets & affected:
+        reasons.append(f"{len(dependency_targets & affected)} dependent service(s) are also affected")
+    if len(active_services) > 1:
+        reasons.append(f"{len(active_services)} active faults are being evaluated together")
+    if len(recent_window) >= 3:
+        reasons.append(f"{len(recent_window)} fault event(s) occurred in the last 10 minutes")
+
+    components = {
+        "severity": max(severity_values or [0]),
+        "frequency": max(frequency_values or [0]),
+        "duration": max(duration_values or [0]),
+        "impact": min(100.0, impact["affected_percentage"]),
+        "recurrence": max(recurrence_values or [0]),
+        "dependency": dependency_score,
+    }
+    score = sum(components[key] * CRITICALITY_CONFIG[f"{key}_weight"] for key in components)
+    percentage = round(min(100.0, max(CRITICALITY_CONFIG["min_percentage"], score)), 1)
+    if percentage >= CRITICALITY_CONFIG["critical_threshold"]:
+        severity = "CRITICAL"
+    elif percentage >= CRITICALITY_CONFIG["high_threshold"]:
+        severity = "HIGH"
+    elif percentage >= CRITICALITY_CONFIG["moderate_threshold"]:
+        severity = "MODERATE"
+    elif percentage >= CRITICALITY_CONFIG["low_threshold"]:
+        severity = "LOW"
+    else:
+        severity = "INFORMATIONAL"
+
+    return {"percentage": percentage, "severity": severity, "reasons": reasons, "components": components}
+
+
+SERVICE_DIAGNOSTICS = {
+    "payment": {
+        "label": "Payment Service",
+        "port": 8082,
+        "down": {
+            "title": "Payment Service Outage (:8082) — Transaction Authorization Offline",
+            "what_is_happening": "Payment Service (:8082) is completely DOWN (service_up=0, returning HTTP 503). All incoming payment authorization calls are failing.",
+            "cause": "Injected service outage or container termination. Order Service checkout transactions cannot process payments, forcing orders into PAYMENT_FAILED status.",
+            "measures": [
+                "Restart the payment microservice container: docker restart payment-service",
+                "Verify payment actuator health: curl -s http://localhost:8082/actuator/health",
+                "Inspect payment container logs for fatal exceptions: docker logs payment-service --tail 100",
+                "Reset active fault in Fault Lab (:4001) or via POST /fault/reset",
+            ],
+            "why": "Payment Service (:8082) is completely down (HTTP 503 / connection refused). Customer checkouts cannot authorize credit card or wallet transactions; orders will abort at payment capture.",
+            "action": "docker restart payment-service && curl -s http://localhost:8082/actuator/health",
+            "command": "docker restart payment-service",
+            "priority": "P1",
+        },
+        "high_error": {
+            "title": "Payment Authorization Rejection Spike on :8082 ({err_pct}%)",
+            "what_is_happening": "Payment Service is generating HTTP 5xx responses on {err_pct}% of transaction capture attempts.",
+            "cause": "Payment gateway connector exceptions or database transaction lock timeouts are aborting payment validation during order checkout.",
+            "measures": [
+                "Inspect payment error logs: docker logs payment-service --tail 100 | grep -E 'PaymentException|TransactionSystemException|Timeout'",
+                "Verify database connection pool status in Payment Service",
+                "Restart payment service if error storm continues: docker restart payment-service",
+                "Ensure Order Service payment circuit breaker gracefully handles transient payment failures",
+            ],
+            "why": "Payment Service is returning HTTP 5xx errors during transaction capture. Customer orders are rejected and transition to PAYMENT_FAILED state. Check mock payment gateway connector and database transaction locks.",
+            "action": "docker logs payment-service --tail 100 | grep -E 'PaymentException|TransactionSystemException|Timeout'",
+            "command": "docker logs payment-service --tail 100",
+            "priority": "P1",
+        },
+        "low_error": {
+            "title": "Transient Payment Gateway Jitter ({err_pct}%)",
+            "what_is_happening": "Minor intermittent errors detected on Payment Service ({err_pct}%). Over 95% of customer payments succeed.",
+            "cause": "Transient network jitter, sporadic 3DS authorization timeouts, or client retry lag. System is healthy; not a cascading outage.",
+            "measures": [
+                "Monitor error rate burn down for 2 minutes before taking disruptive action",
+                "Inspect recent payment log warnings: docker logs payment-service --tail 50",
+                "Do NOT restart container unless error rate exceeds 8%",
+            ],
+            "why": "Observed payment error rate is only {err_pct}%. Core transaction pipeline is 95%+ operational. Typically caused by isolated card authorization timeouts or client-side retry lag.",
+            "action": "docker logs payment-service --tail 50 | grep -i 'failed'",
+            "command": "docker logs payment-service --tail 50",
+            "priority": "P3",
+        },
+        "latency": {
+            "title": "Payment Provider Gateway Latency ({p99_s}s)",
+            "what_is_happening": "Payment Service P99 latency ({p99_s}s) exceeds the 0.800s SLA budget. Injected delay or connection stall active.",
+            "cause": "Slow payment processing causes worker threads in Order Service (:8081) to wait synchronously, risking upstream connection pool starvation.",
+            "measures": [
+                "Inspect active artificial latency in Fault Lab (:4001) and reset if needed",
+                "Check payment service thread pool: docker logs payment-service --tail 50",
+                "Verify Order Service RestTemplate timeout is configured (recommended 3000ms max)",
+                "Reset latency fault: POST http://localhost:8080/fault/reset",
+            ],
+            "why": "Payment P99 latency ({p99_s}s) exceeds the 0.800s SLA budget. Delays in payment gateway authorization risk exhausting upstream Order Service thread pools.",
+            "action": "docker logs payment-service --tail 50",
+            "command": "docker logs payment-service --tail 50",
+            "priority": "P2",
+        },
+    },
+    "inventory": {
+        "label": "Inventory Service",
+        "port": 8083,
+        "down": {
+            "title": "Inventory Service Outage (:8083) — Stock Allocation Offline",
+            "what_is_happening": "Inventory Service (:8083) is unreachable (service_up=0, HTTP 503). Live catalog queries and stock reservations are failing.",
+            "cause": "Injected outage or container stoppage. Order Service cannot execute /inventory/deduct; checkout pipeline aborts at Step 2.",
+            "measures": [
+                "Restart inventory microservice container: docker restart inventory-service",
+                "Verify inventory actuator health and MongoDB connectivity: curl -s http://localhost:8083/inventory",
+                "Check inventory crash logs: docker logs inventory-service --tail 100",
+                "Ensure /inventory/deduct security allows authenticated order orchestration",
+            ],
+            "why": "Inventory Service (:8083) is unreachable. Order Service cannot check stock or deduct items (/inventory/deduct); all checkout transactions abort at Step 2.",
+            "action": "docker restart inventory-service && curl -s http://localhost:8083/inventory",
+            "command": "docker restart inventory-service",
+            "priority": "P1",
+        },
+        "high_error": {
+            "title": "Inventory Deduction Failure on :8083 ({err_pct}%)",
+            "what_is_happening": "Inventory Service is returning HTTP 500/403 errors on {err_pct}% of stock check and deduction calls.",
+            "cause": "Stock deduction requests are throwing exceptions (insufficient quantity, concurrency lock conflict, or endpoint security failure).",
+            "measures": [
+                "Inspect inventory logs for deduction and database errors: docker logs inventory-service --tail 100 | grep -E 'Stock|deduct|OptimisticLockingFailureException'",
+                "Check stock levels for affected SKUs in MongoDB Atlas via /inventory",
+                "Verify @Version optimistic locking retries handle concurrent stock reservations",
+                "Restart inventory service if thread pool is locked: docker restart inventory-service",
+            ],
+            "why": "Inventory Service is returning HTTP 500/403 errors during stock deduction. Verify /inventory/deduct endpoint security permissions and MongoDB stock availability.",
+            "action": "docker logs inventory-service --tail 100",
+            "command": "docker logs inventory-service --tail 100",
+            "priority": "P1",
+        },
+        "low_error": {
+            "title": "Stock Reservation Concurrency Contention ({err_pct}%)",
+            "what_is_happening": "Inventory Service is experiencing a low error rate ({err_pct}%). Over 95% of catalog browsing and stock deductions succeed.",
+            "cause": "Isolated concurrency contention on high-demand SKUs (e.g. Product 105) or single product stock depletion. Not a systemic cascade failure.",
+            "measures": [
+                "Check stock levels of low-inventory products via curl -s http://localhost:8083/inventory",
+                "Observe error burn rate; allow optimistic lock retries to resolve naturally",
+                "Restock items with 0 available quantity to eliminate customer checkout rejections",
+            ],
+            "why": "Inventory error rate is only {err_pct}%. Over 95% of catalog browsing and stock deductions succeed. Indicates isolated SKU lock contention or low stock on specific items (e.g. Product 105).",
+            "action": "curl -s http://localhost:8083/inventory",
+            "command": "curl -s http://localhost:8083/inventory",
+            "priority": "P3",
+        },
+        "latency": {
+            "title": "Inventory Database Query Lock Contention — P99 {p99_s}s",
+            "what_is_happening": "Inventory P99 latency ({p99_s}s) exceeds the 0.300s SLA budget. Injected delay or slow MongoDB query execution active.",
+            "cause": "Slow inventory lookups delay storefront product discovery and lengthen synchronous Order Service checkout execution.",
+            "measures": [
+                "Check active artificial delay in Fault Lab (:4001) and reset if needed",
+                "Inspect MongoDB query performance and indexing on product collections",
+                "Inspect inventory service logs: docker logs inventory-service --tail 50 | grep -i 'mongo'",
+                "Reset latency fault: POST http://localhost:8080/fault/reset",
+            ],
+            "why": "Inventory P99 latency ({p99_s}s) exceeds the 0.300s SLA budget. Slow MongoDB queries on product catalog delay storefront browsing and checkout validation.",
+            "action": "docker logs inventory-service --tail 50",
+            "command": "docker logs inventory-service --tail 50",
+            "priority": "P2",
+        },
+    },
+    "order": {
+        "label": "Order Service",
+        "port": 8081,
+        "down": {
+            "title": "Order Service Outage (:8081) — Storefront Checkout Severed",
+            "what_is_happening": "Order Service (:8081) is completely DOWN (service_up=0, HTTP 503). Core order orchestration is offline.",
+            "cause": "API Gateway cannot forward POST /orders or order queries. Customer checkout and order management are completely blocked.",
+            "measures": [
+                "Restart order microservice container: docker restart order-service",
+                "Verify order service health and database connection: curl -s http://localhost:8081/actuator/health",
+                "Inspect container crash logs: docker logs order-service --tail 100",
+                "Verify downstream microservices (Inventory, Payment, Shipping) are healthy",
+            ],
+            "why": "Order Service (:8081) is completely unavailable. Customer cart checkout and order placement endpoints are returning HTTP 503.",
+            "action": "docker restart order-service && curl -s http://localhost:8081/actuator/health",
+            "command": "docker restart order-service",
+            "priority": "P1",
+        },
+        "high_error": {
+            "title": "Order Orchestration Cascade Failure on :8081 ({err_pct}%)",
+            "what_is_happening": "Order Service is failing {err_pct}% of order submissions, returning HTTP 5xx responses to API Gateway.",
+            "cause": "Downstream dependency failure: Inventory (:8083) or Payment (:8082) rejected calls. Order Service is a caller victim in a cascading failure.",
+            "measures": [
+                "DO NOT restart Order Service first; diagnose the underlying callee service (Inventory or Payment)",
+                "Inspect order cascade trace: docker logs order-service --tail 100 | grep -E 'RestClientException|ResourceAccessException|500'",
+                "Recover the failing downstream microservice; Order Service will heal automatically",
+                "Enable circuit breaker fallbacks in Order Service to prevent thread exhaustion",
+            ],
+            "why": "Order Service is failing order requests (error rate: {err_pct}%). Check downstream dependencies (Inventory :8083, Payment :8082) before restarting Order Service.",
+            "action": "docker logs order-service --tail 100 | grep -E 'RestClientException|ResourceAccessException|500'",
+            "command": "docker logs order-service --tail 100",
+            "priority": "P1",
+        },
+        "low_error": {
+            "title": "Order Service Transient Socket Drops ({err_pct}%)",
+            "what_is_happening": "Order Service shows low error rate of {err_pct}%. Core order pipeline is functioning normally for >92% of requests.",
+            "cause": "Isolated client socket timeout, malformed payload validation rejection, or transient downstream hiccup.",
+            "measures": [
+                "Monitor error rate trend before taking disruptive action",
+                "Inspect order service logs for validation errors: docker logs order-service --tail 50",
+                "Verify client request format from storefront",
+            ],
+            "why": "Order error rate is only {err_pct}%. Core order pipeline is functioning normally for >92% of requests. Likely minor client socket reset or transient downstream hiccup.",
+            "action": "docker logs order-service --tail 50",
+            "command": "docker logs order-service --tail 50",
+            "priority": "P3",
+        },
+        "latency": {
+            "title": "Order Orchestration Thread Exhaustion — P99 {p99_s}s",
+            "what_is_happening": "Order Service P99 latency ({p99_s}s) exceeds the 0.500s SLA budget. Orders are taking excessive time to process.",
+            "cause": "Order Service worker threads are synchronously blocked waiting for slow downstream microservices (Payment or Inventory).",
+            "measures": [
+                "Inspect Jaeger distributed traces to identify the exact slow downstream hop: http://localhost:16686",
+                "Check thread dump for TIMED_WAITING threads: docker logs order-service --tail 50",
+                "Tune RestTemplate socket timeout (recommended 3000ms max) to prevent unbounded caller thread blocking",
+                "Reset active latency faults across dependencies: POST http://localhost:8080/fault/reset",
+            ],
+            "why": "Order Service P99 latency ({p99_s}s) exceeds the 0.500s SLA budget. Tomcat worker threads are blocked awaiting responses from downstream microservices.",
+            "action": "docker logs order-service --tail 50",
+            "command": "docker logs order-service --tail 50",
+            "priority": "P2",
+        },
+    },
+    "shipping": {
+        "label": "Shipping Service",
+        "port": 8084,
+        "down": {
+            "title": "Shipping Service Outage (:8084) — Fulfillment Label Generation Halted",
+            "what_is_happening": "Shipping Service (:8084) is completely DOWN (service_up=0, HTTP 503). Dispatch label generation is halted.",
+            "cause": "Injected fault or container failure. New orders cannot generate tracking numbers. Customer checkout completes, but order status remains PROCESSING.",
+            "measures": [
+                "Restart shipping-service container: docker restart shipping-service",
+                "Verify shipping health: curl -s http://localhost:8084/actuator/health",
+                "Inspect container logs for startup failures: docker logs shipping-service --tail 100",
+                "Clear active fault state in Fault Lab (:4001)",
+            ],
+            "why": "Shipping Service (:8084) is DOWN. New orders cannot generate shipping labels or carrier tracking IDs. Customer checkout can proceed if decoupled asynchronously.",
+            "action": "docker restart shipping-service && curl -s http://localhost:8084/actuator/health",
+            "command": "docker restart shipping-service",
+            "priority": "P1",
+        },
+        "high_error": {
+            "title": "Carrier Dispatch API Rejection Spike on :8084 ({err_pct}%)",
+            "what_is_happening": "Shipping Service is returning HTTP 5xx errors on {err_pct}% of shipment creation requests.",
+            "cause": "Carrier webhook integration failure or database serialization conflict during shipment ID generation.",
+            "measures": [
+                "Inspect shipping container logs: docker logs shipping-service --tail 50 | grep -i 'carrier'",
+                "Decouple shipping label generation from checkout via asynchronous queues",
+                "Restart shipping service if error loop persists: docker restart shipping-service",
+            ],
+            "why": "Shipping Service is returning 5xx errors (error rate: {err_pct}%). Decouple shipping label generation from checkout via asynchronous queues.",
+            "action": "docker logs shipping-service --tail 50",
+            "command": "docker logs shipping-service --tail 50",
+            "priority": "P2",
+        },
+        "low_error": {
+            "title": "Shipping Carrier API Intermittent Jitter ({err_pct}%)",
+            "what_is_happening": "Shipping Service error rate is {err_pct}%. Minor carrier API timeout during background dispatch creation.",
+            "cause": "Transient carrier webhook timeout. Primary checkout and order persistence are 100% unaffected.",
+            "measures": [
+                "Check carrier webhook queue: docker logs shipping-service --tail 30",
+                "Allow background retry scheduler to dispatch pending labels",
+            ],
+            "why": "Shipping error rate is {err_pct}%. Post-checkout background fulfillment task experiencing minor transient carrier webhook delay.",
+            "action": "docker logs shipping-service --tail 30",
+            "command": "docker logs shipping-service --tail 30",
+            "priority": "P3",
+        },
+        "latency": {
+            "title": "Carrier Dispatch API Latency ({p99_s}s)",
+            "what_is_happening": "Shipping latency ({p99_s}s) exceeds the 1.000s SLA budget. Outbound carrier dispatch calls are lagging.",
+            "cause": "External carrier rate limiting or artificial latency fault in shipping microservice.",
+            "measures": [
+                "Check active artificial delay in Fault Lab (:4001) and reset if needed",
+                "Inspect outbound carrier dispatch response times: docker logs shipping-service --tail 30",
+                "Ensure shipping dispatch is processed via @Async background worker",
+            ],
+            "why": "Shipping latency ({p99_s}s) exceeds the 1.000s SLA budget. Outbound carrier dispatch calls are taking longer than normal.",
+            "action": "docker logs shipping-service --tail 30",
+            "command": "docker logs shipping-service --tail 30",
+            "priority": "P2",
+        },
+    },
+    "delivery": {
+        "label": "Delivery Service",
+        "port": 8085,
+        "down": {
+            "title": "Delivery Tracking Service Outage (:8085)",
+            "what_is_happening": "Delivery Service (:8085) is DOWN (service_up=0, HTTP 503). Live GPS tracking updates are paused.",
+            "cause": "Delivery container offline. Storefront checkout, inventory deduction, and payment capture are unaffected.",
+            "measures": [
+                "Restart delivery container: docker restart delivery-service",
+                "Verify actuator health: curl -s http://localhost:8085/actuator/health",
+                "Inspect delivery logs: docker logs delivery-service --tail 50",
+            ],
+            "why": "Delivery Service (:8085) is down. Live order GPS tracking is unavailable, but customer cart checkout and order placement are unaffected.",
+            "action": "docker restart delivery-service && curl -s http://localhost:8085/actuator/health",
+            "command": "docker restart delivery-service",
+            "priority": "P2",
+        },
+        "high_error": {
+            "title": "Courier Telemetry Failures on :8085 ({err_pct}%)",
+            "what_is_happening": "Delivery Service is reporting HTTP 5xx errors on {err_pct}% of tracking requests.",
+            "cause": "Courier webhook payload parser exception or GPS telemetry buffer overflow.",
+            "measures": [
+                "Inspect courier webhook ingestion buffer: docker logs delivery-service --tail 50 | grep -i 'courier'",
+                "Isolate delivery errors from upstream shipping pipeline",
+                "Restart delivery service if telemetry queue is stalled: docker restart delivery-service",
+            ],
+            "why": "Delivery Service is reporting errors (error rate: {err_pct}%). Inspect courier webhook ingestion buffer; isolate delivery errors from upstream shipping.",
+            "action": "docker logs delivery-service --tail 50",
+            "command": "docker logs delivery-service --tail 50",
+            "priority": "P2",
+        },
+        "low_error": {
+            "title": "Delivery Telemetry Sync Latency ({err_pct}%)",
+            "what_is_happening": "Minor error rate of {err_pct}% on delivery tracking.",
+            "cause": "Transient courier GPS packet drop. Storefront operations are 100% unaffected.",
+            "measures": [
+                "Check delivery log tail: docker logs delivery-service --tail 30",
+                "No immediate intervention required; monitor telemetry stream",
+            ],
+            "why": "Minor error rate of {err_pct}% on delivery tracking. Storefront checkout is 100% operational.",
+            "action": "docker logs delivery-service --tail 30",
+            "command": "docker logs delivery-service --tail 30",
+            "priority": "P3",
+        },
+        "latency": {
+            "title": "Delivery Service Latency ({p99_s}s)",
+            "what_is_happening": "Delivery P99 latency ({p99_s}s) exceeds the 1.000s SLA budget.",
+            "cause": "Slow courier API responses or artificial latency fault in delivery microservice.",
+            "measures": [
+                "Inspect delivery logs: docker logs delivery-service --tail 30",
+                "Reset active latency faults in Fault Lab (:4001)",
+            ],
+            "why": "Delivery P99 latency ({p99_s}s) exceeds the 1.000s SLA budget.",
+            "action": "docker logs delivery-service --tail 30",
+            "command": "docker logs delivery-service --tail 30",
+            "priority": "P3",
+        },
+    },
+    "notification": {
+        "label": "Notification Service",
+        "port": 8086,
+        "down": {
+            "title": "Notification Service Outage (:8086) — Customer Email/SMS Disconnected",
+            "what_is_happening": "Notification Service (:8086) is DOWN (service_up=0, HTTP 503). Automated order confirmation emails cannot be dispatched.",
+            "cause": "Injected outage or container stoppage. Upstream Order Service notifications are dropped or queued.",
+            "measures": [
+                "Restart notification container: docker restart notification-service",
+                "Verify actuator health: curl -s http://localhost:8086/actuator/health",
+                "Ensure upstream services fire notifications via @Async fire-and-forget so checkout never blocks",
+                "Clear active fault state in Fault Lab (:4001)",
+            ],
+            "why": "Notification Service (:8086) is DOWN. Order confirmations cannot be dispatched. Verify upstream services fire notifications via @Async fire-and-forget so checkout never blocks.",
+            "action": "docker restart notification-service && curl -s http://localhost:8086/actuator/health",
+            "command": "docker restart notification-service",
+            "priority": "P2",
+        },
+        "high_error": {
+            "title": "Notification Relay Failure on :8086 ({err_pct}%)",
+            "what_is_happening": "Notification Service is encountering delivery errors on {err_pct}% of outgoing alerts.",
+            "cause": "SMTP provider authentication failure or SMS gateway rate limit rejection.",
+            "measures": [
+                "Inspect notification container logs: docker logs notification-service --tail 50 | grep -E 'MailException|SmsException'",
+                "Verify SMTP relay credentials and SMS provider balance",
+                "Ensure ThreadPoolTaskExecutor DiscardOldestPolicy is active to prevent memory leaks",
+            ],
+            "why": "Notification Service is encountering delivery errors (error rate: {err_pct}%). Verify SMTP relay and SMS provider credentials; ensure ThreadPoolTaskExecutor DiscardOldestPolicy is active.",
+            "action": "docker logs notification-service --tail 50",
+            "command": "docker logs notification-service --tail 50",
+            "priority": "P2",
+        },
+        "low_error": {
+            "title": "Notification Provider Rate Limit ({err_pct}%)",
+            "what_is_happening": "Low error rate of {err_pct}% on notification delivery.",
+            "cause": "Transient provider rate-limit or email formatting rejection. Checkout is completely unaffected.",
+            "measures": [
+                "Monitor email dispatch queue: docker logs notification-service --tail 30",
+                "Allow exponential backoff retry mechanism to deliver queued messages",
+            ],
+            "why": "Low error rate of {err_pct}%. Transient provider rate-limit or email formatting error. Checkout is completely unaffected.",
+            "action": "docker logs notification-service --tail 30",
+            "command": "docker logs notification-service --tail 30",
+            "priority": "P3",
+        },
+        "latency": {
+            "title": "Notification Delivery Latency ({p99_s}s)",
+            "what_is_happening": "Notification P99 latency ({p99_s}s) exceeds the 0.500s SLA budget.",
+            "cause": "Slow SMTP connection handshake or artificial latency fault in notification service.",
+            "measures": [
+                "Check active artificial delay in Fault Lab (:4001) and reset if needed",
+                "Ensure email sending is executed on dedicated async daemon threads",
+            ],
+            "why": "Notification P99 latency ({p99_s}s) exceeds 0.500s SLA budget. Ensure thread pool decoupling.",
+            "action": "docker logs notification-service --tail 30",
+            "command": "docker logs notification-service --tail 30",
+            "priority": "P3",
+        },
+    },
+}
+
+
+def intelligent_recommendations(raw: dict, causes: list, impact: dict, criticality: dict, sla: dict) -> list:
+    """Create particular, microservice-specific recommendations from current evidence, state, and fault history."""
+    active = _active_fault_events()
+    recommendations = []
+
+    def add(service, recommendation, why, evidence, action, priority, command=None, what_is_happening=None, cause=None, measures=None):
+        m_list = measures if isinstance(measures, list) else ([measures] if measures else [action])
+        recommendations.append({
+            "service": service,
+            "recommendation": recommendation,
+            "title": recommendation,
+            "what_is_happening": what_is_happening or why,
+            "cause": cause or why,
+            "measures": m_list,
+            "why": why,
+            "evidence": evidence,
+            "suggested_action": action,
+            "command": command or action,
+            "priority": priority,
+            "severity": criticality["severity"],
+            "criticality": criticality["percentage"],
+        })
+
+    affected_services = [svc for svc, value in impact["services"].items() if value > 0]
+    repeated = {
+        svc: sum(1 for event in FAULT_EVENTS if event.get("service") == svc and event.get("status") in ("ACTIVE", "INJECTED"))
+        for svc in affected_services
+    }
+    cascading = len(affected_services) > 1 or len({dst for src, dst in ARCH_EDGES if src in affected_services} & set(affected_services)) > 0
+
+    if cascading:
+        def _dep_score(svc):
+            # Prioritize services that are down or faulted, and callee dependencies over orchestrator callers
+            is_down = 10 if raw.get(f"{svc}_service_up", 1.0) == 0 else 0
+            has_fault = 5 if raw.get(f"{svc}_fault", "NONE") != "NONE" else 0
+            callers = sum(1 for src, dst in ARCH_EDGES if dst == svc and src in affected_services)
+            calls_others = sum(1 for src, dst in ARCH_EDGES if src == svc and dst in affected_services)
+            return is_down + has_fault + (callers * 2) - calls_others
+
+        sorted_candidates = sorted(affected_services, key=_dep_score, reverse=True)
+        root_svc = sorted_candidates[0] if sorted_candidates else affected_services[0]
+        downstream = [s for s in affected_services if s != root_svc]
+        root_label = SERVICE_LABELS.get(root_svc, root_svc)
+        downstream_labels = ", ".join(SERVICE_LABELS.get(s, s) for s in downstream) if downstream else "downstream services"
+        port = SERVICE_PORTS.get(root_svc, 8080)
+        add(root_svc,
+            f"Cascade Root Cause: Investigate the upstream dependency ({root_label}) before restarting downstream services.",
+            f"Multiple related services ({', '.join(affected_services)}) are affected. The failure originated in {root_label} and propagated to {downstream_labels}. Restarting {downstream_labels} will not fix the cascade.",
+            f"Affected services: {', '.join(affected_services)}; upstream root: {root_label} (:{port}); dependency impact: {criticality['components']['dependency']:.1f}%.",
+            f"docker restart {root_svc}-service",
+            "P1",
+            command=f"docker restart {root_svc}-service",
+            what_is_happening=f"Cascading failure detected across {len(affected_services)} services ({', '.join(affected_services)}). Downstream callers are failing because upstream dependency {root_label} is offline or rejecting calls.",
+            cause=f"Architectural cascade propagation: {root_label} is the callee dependency root cause. Synchronous calls from {downstream_labels} timed out or failed, propagating errors through the dependency graph.",
+            measures=[
+                f"Prioritize recovering the upstream root cause dependency ({root_label}) first: docker restart {root_svc}-service",
+                f"Do NOT restart caller services ({downstream_labels}) yet; they will self-heal automatically once {root_label} recovers",
+                f"Verify health of the root dependency: curl -s http://localhost:{port}/actuator/health",
+                f"Inspect Jaeger distributed trace for propagation timing: http://localhost:16686",
+            ])
+
+    for svc in affected_services:
+        fault = str(raw.get(f"{svc}_fault", "NONE")).upper()
+        up = float(raw.get(f"{svc}_service_up", 1.0))
+        err = float(raw.get(f"{svc}_error_rate_5xx", 0.0))
+        rr = float(raw.get(f"{svc}_request_rate", 0.0))
+        p99 = float(raw.get(f"{svc}_p99_latency_s", 0.0))
+        delay = float(raw.get(f"{svc}_fault_delay_ms", 0.0))
+        label = SERVICE_LABELS.get(svc, svc)
+        diag = SERVICE_DIAGNOSTICS.get(svc, {})
+        err_pct = round((err / max(rr, 0.001)) * 100, 1) if rr > 0 else round(err * 100.0, 1)
+        sla_target = SLA_TARGETS.get(svc, {"max_error_rate": 0.01, "max_p99_s": 0.5})
+        budget_pct = round((err / max(sla_target["max_error_rate"], 1e-6)) * 100, 1)
+
+        if repeated.get(svc, 0) >= 3:
+            add(svc,
+                f"Investigate recurring failure pattern on {label} instead of repeating restarts.",
+                f"{label} has {repeated[svc]} recorded fault events in recent window, indicating recurrence. Repetitive restarts do not address root cause resource leaks.",
+                f"Fault type: {fault}; recent event count: {repeated[svc]}; current impact: {impact['services'][svc]:.1f}%.",
+                f"docker logs {svc}-service --tail 200",
+                "P1",
+                command=f"docker logs {svc}-service --tail 100",
+                what_is_happening=f"{label} has failed {repeated[svc]} times in the recent observation window. Repeated container restarts have failed to permanently stabilize the service.",
+                cause="Chronic resource exhaustion, database connection pool leak, or memory leak causing recurring process crashes.",
+                measures=[
+                    f"Check heap dump and memory leak traces: docker logs {svc}-service --tail 200 | grep -E 'OutOfMemoryError|ConnectionPoolTimeoutException|Deadlock'",
+                    "Profile JVM memory footprint and active thread count",
+                    "Inspect MongoDB Atlas connection limits and slow query logs",
+                ])
+        elif fault == "DOWN" or up == 0:
+            cfg = diag.get("down", {})
+            add(svc,
+                cfg.get("title", f"Restart {label} — Service Down"),
+                cfg.get("why", f"{label} is completely offline (service_up=0)."),
+                f"Status: DOWN (service_up=0); port: {SERVICE_PORTS.get(svc)}; impact: {impact['services'][svc]:.1f}%.",
+                cfg.get("action", f"docker restart {svc}-service"),
+                cfg.get("priority", "P1"),
+                command=cfg.get("command", f"docker restart {svc}-service"),
+                what_is_happening=cfg.get("what_is_happening", f"{label} is completely offline (service_up=0)."),
+                cause=cfg.get("cause", f"{label} process is terminated or injected DOWN fault is active."),
+                measures=cfg.get("measures", [f"docker restart {svc}-service"]))
+        elif fault == "ERROR" or err > 0.08:
+            cfg = diag.get("high_error", {})
+            title = cfg.get("title", f"Remediate {label} Error Rate").format(err_pct=err_pct)
+            why = cfg.get("why", f"{label} is returning high error rates.").format(err_pct=err_pct)
+            what_is_happening = cfg.get("what_is_happening", f"{label} is returning high error rates.").format(err_pct=err_pct)
+            cause = cfg.get("cause", f"{label} is failing internal transactions.").format(err_pct=err_pct)
+            add(svc,
+                title,
+                why,
+                f"Fault: {fault}; error rate: {err:.4f}/s ({err_pct}% of traffic); SLA error budget consumed: {budget_pct}%; impact: {impact['services'][svc]:.1f}%.",
+                cfg.get("action", f"docker logs {svc}-service --tail 100"),
+                cfg.get("priority", "P1"),
+                command=cfg.get("command", f"docker logs {svc}-service --tail 100"),
+                what_is_happening=what_is_happening,
+                cause=cause,
+                measures=cfg.get("measures", [f"docker logs {svc}-service --tail 100"]))
+        elif err > 0.005 or (err > 0 and err <= 0.08):
+            cfg = diag.get("low_error", {})
+            title = cfg.get("title", f"Monitor {label} Transient Fluctuation").format(err_pct=err_pct)
+            why = cfg.get("why", f"{label} error rate is low ({err_pct}%).").format(err_pct=err_pct)
+            what_is_happening = cfg.get("what_is_happening", f"{label} error rate is low ({err_pct}%).").format(err_pct=err_pct)
+            cause = cfg.get("cause", f"{label} has transient jitter.").format(err_pct=err_pct)
+            add(svc,
+                title,
+                why,
+                f"Minor error rate: {err:.4f}/s ({err_pct}%); impact: {impact['services'][svc]:.1f}%; core operations unaffected.",
+                cfg.get("action", f"docker logs {svc}-service --tail 50"),
+                cfg.get("priority", "P3"),
+                command=cfg.get("command", f"docker logs {svc}-service --tail 50"),
+                what_is_happening=what_is_happening,
+                cause=cause,
+                measures=cfg.get("measures", [f"docker logs {svc}-service --tail 50"]))
+        elif fault == "LATENCY" or p99 > sla_target["max_p99_s"]:
+            cfg = diag.get("latency", {})
+            p99_val = round(p99, 3)
+            title = cfg.get("title", f"Check {label} Dependency Latency").format(p99_s=p99_val)
+            why = cfg.get("why", f"{label} is slow.").format(p99_s=p99_val)
+            what_is_happening = cfg.get("what_is_happening", f"{label} is slow.").format(p99_s=p99_val)
+            cause = cfg.get("cause", f"{label} latency is elevated.").format(p99_s=p99_val)
+            add(svc,
+                title,
+                why,
+                f"P99 latency: {p99:.3f}s; injected delay: {delay:.0f}ms; SLA limit: {sla_target['max_p99_s']}s; impact: {impact['services'][svc]:.1f}%.",
+                cfg.get("action", f"docker logs {svc}-service --tail 50"),
+                cfg.get("priority", "P2"),
+                command=cfg.get("command", f"docker logs {svc}-service --tail 50"),
+                what_is_happening=what_is_happening,
+                cause=cause,
+                measures=cfg.get("measures", [f"docker logs {svc}-service --tail 50"]))
+
+    if not recommendations and not causes:
+        add("system",
+            "All OmniStore Microservices Operational — Normal Telemetry",
+            "All 6 microservices (Order, Payment, Inventory, Shipping, Delivery, Notification) are healthy with zero active faults and zero SLA breaches.",
+            f"Criticality: {criticality['percentage']:.1f}%; system error rate: 0.00%; active incidents: 0.",
+            "System is operating normally. To test cascade prediction resilience, inject faults via Fault Lab (:4001).",
+            "P3",
+            command="curl -s http://localhost:8080/actuator/health",
+            what_is_happening="All 6 OmniStore microservices (Order, Payment, Inventory, Shipping, Delivery, Notification) are healthy with zero active faults and zero SLA breaches.",
+            cause="System is operating within healthy baseline tolerances. Error rate is 0.00% and P99 latency is below all SLA thresholds.",
+            measures=[
+                "System is fully operational; no remediation required",
+                "To test cascade prediction resilience, inject faults via Fault Lab (:4001)",
+                "Monitor live metrics and Prometheus health status in Grafana",
+            ])
+
+    return recommendations
+
+
+def enrich_fault_events(raw: dict, impact: dict, criticality: dict, recommendations: list):
+    """Persist current metrics and recommendation evidence back onto synchronized events."""
+    by_service = {item.get("service"): item for item in recommendations}
+    changed = False
+    for event in FAULT_EVENTS:
+        service = event.get("service")
+        if service not in impact["services"]:
+            continue
+        event["criticality_percentage"] = criticality["percentage"]
+        event["severity"] = criticality["severity"]
+        event["criticality_reasons"] = criticality["reasons"]
+        event["affected_component"] = service
+        event["active_faults"] = len(_active_fault_events())
+        recommendation = by_service.get(service) or by_service.get("system")
+        if recommendation:
+            event["recommendation"] = recommendation["recommendation"]
+            event["recommendation_reason"] = recommendation["why"]
+            event["recommendation_evidence"] = recommendation["evidence"]
+        changed = True
+    if changed:
+        _save_fault_events()
 
 
 def full_pipeline(raw: dict) -> dict:
@@ -1011,43 +1648,36 @@ def full_pipeline(raw: dict) -> dict:
     fi       = feature_importances()
     sla      = sla_compliance(raw)
     obs      = observability_status()
+    impact   = impact_analysis(raw)
+    criticality = criticality_analysis(raw, impact)
 
-    if _model is not None and _scaler is not None and _features is not None:
-        try:
-            vec   = np.array([float(raw.get(f, 0)) for f in _features]).reshape(1, -1)
-            vec   = _scaler.transform(vec)
-            pred  = int(_model.predict(vec)[0])
-            proba = _model.predict_proba(vec)[0]
-            cr    = round(float(proba[1]) if len(proba) > 1 else float(proba[0]), 4)
-            if cr >= 0.8:   rl = "CRITICAL"
-            elif cr >= 0.6: rl = "HIGH"
-            elif cr >= 0.4: rl = "MEDIUM"
-            else:           rl = "LOW"
-            prediction = "CASCADE_FAILURE" if pred == 1 else "NORMAL"
-            confidence = round(float(max(proba)), 4)
-            model_note = "Random Forest Classifier"
-        except Exception as e:
-            rl, cr = rule_based_risk(raw)
-            prediction = "CASCADE_FAILURE" if cr > 0.5 else "NORMAL"
-            confidence = 0.75
-            model_note = f"Rule-based fallback (model error: {e})"
-    else:
-        rl, cr = rule_based_risk(raw)
-        prediction = "CASCADE_FAILURE" if cr > 0.5 else "NORMAL"
-        confidence = 0.75
-        model_note = "Rule-based assessment (model not trained yet)"
+    # ML Cascade Failure Prediction driven by Random Forest model (71 features)
+    ml_result  = predict_cascade(raw)
+    prediction = ml_result["prediction"]
+    cr         = ml_result["cascade_risk"]
+    confidence = ml_result["confidence"]
+    rl         = ml_result["risk_level"]
+    model_note = ml_result["model_note"]
 
-    recs = structured_recommendations(causes, raw, rl, sla)
+    # Percentage-scaled risk level escalation:
+    # CRITICAL requires widespread failure: >= 2 services down, system mean error >= 35%,
+    # or high cascade risk with significant error rate (>= 30%).
+    if rl == "CRITICAL":
+        if raw.get("num_services_down", 0) < 2 and raw.get("system_mean_error_rate", 0) < 0.35 and cr < 0.80:
+            rl = "HIGH" if (raw.get("num_services_down", 0) >= 1 or raw.get("system_max_error_rate", 0) >= 0.20) else ("MEDIUM" if raw.get("system_max_error_rate", 0) >= 0.08 else "LOW")
+    elif criticality["severity"] == "CRITICAL":
+        if raw.get("num_services_down", 0) >= 2 or raw.get("system_mean_error_rate", 0) >= 0.35 or cr >= 0.80:
+            rl = "CRITICAL"
+        else:
+            rl = "HIGH"
+    elif criticality["severity"] == "HIGH" and rl == "LOW":
+        rl = "MEDIUM" if raw.get("system_max_error_rate", 0) <= 0.15 else "HIGH"
+
+    recs = intelligent_recommendations(raw, causes, impact, criticality, sla)
+    enrich_fault_events(raw, impact, criticality, recs)
     _append_incident(raw, causes, rl)
 
-    # Compute observability percentages for each service.
-    # Use a noise floor to prevent tiny Prometheus scrape noise (floating-point
-    # residuals from bucket arithmetic) from causing jitter when no traffic is flowing.
-    # A value is only considered real if it exceeds the noise floor.
-    ERROR_NOISE_FLOOR   = 0.001   # req/s  — below this is treated as 0
-    LATENCY_NOISE_FLOOR = 0.005   # seconds — below this is treated as 0
-    REQUEST_NOISE_FLOOR = 0.01    # req/s  — below this means "no traffic"
-
+    # Compute observability percentages for each service
     obs_pct = {}
     for svc in SERVICES:
         up  = float(raw.get(f"{svc}_service_up",      1.0))
@@ -1056,23 +1686,14 @@ def full_pipeline(raw: dict) -> dict:
         rr  = float(raw.get(f"{svc}_request_rate",    0.0))
         sla_t = SLA_TARGETS[svc]
 
-        # Apply noise floors — clamp to 0 when below meaningful threshold
-        err = err if err >= ERROR_NOISE_FLOOR   else 0.0
-        p99 = p99 if p99 >= LATENCY_NOISE_FLOOR else 0.0
-        rr  = rr  if rr  >= REQUEST_NOISE_FLOOR else 0.0
-
-        # Error rate as % of requests — only meaningful when there IS traffic
-        # When rr == 0 (no traffic), error rate % is always 0, not undefined
-        err_pct = round((err / rr) * 100, 2) if rr > 0 and err > 0 else 0.0
-
-        # Latency budget % — 0 when latency is below noise floor (idle service)
-        lat_pct = round(min(100.0, (p99 / sla_t["max_p99_s"]) * 100), 1) if p99 > 0 else 0.0
-
+        # Error rate as % of requests
+        err_pct  = round((err / max(rr, 0.001)) * 100, 2) if rr > 0 else 0.0
+        # Latency budget %
+        lat_pct  = round(min(100.0, (p99 / max(sla_t["max_p99_s"], 0.001)) * 100), 1)
         # Uptime %
-        up_pct  = 100.0 if up == 1 else 0.0
-
-        # Error budget % — 0 when error rate is below noise floor
-        err_bud = round(min(100.0, (err / sla_t["max_error_rate"]) * 100), 1) if err > 0 else 0.0
+        up_pct   = 100.0 if up == 1 else 0.0
+        # Error budget %
+        err_bud  = round(min(100.0, (err / max(sla_t["max_error_rate"], 1e-9)) * 100), 1)
 
         obs_pct[svc] = {
             "uptime_pct":           up_pct,
@@ -1089,6 +1710,13 @@ def full_pipeline(raw: dict) -> dict:
         "cascade_risk":          cr,
         "risk_level":            rl,
         "confidence":            confidence,
+        "affected_percentage":   impact["affected_percentage"],
+        "affected_services":     impact["affected_services"],
+        "service_impact_pct":     impact["services"],
+        "criticality_percentage": criticality["percentage"],
+        "criticality_severity":   criticality["severity"],
+        "criticality_reasons":    criticality["reasons"],
+        "criticality_components": criticality["components"],
         "model_note":            model_note,
         "root_cause":            causes,
         "cascade_path":          nx_data["cascade_path"],
@@ -1100,6 +1728,10 @@ def full_pipeline(raw: dict) -> dict:
         "sla_compliance":        sla,
         "observability_status":  obs,
         "observability_pct":     obs_pct,
+        "fault_events":          [
+            {**event, "criticality_percentage": criticality["percentage"], "criticality_severity": criticality["severity"]}
+            for event in list(FAULT_EVENTS)[-50:]
+        ],
         "incident_log":          list(INCIDENT_LOG),
         "live_metrics": {
             svc: {
@@ -1129,6 +1761,7 @@ def health():
 
 
 @app.route("/metrics/live")
+@app.route("/api/metrics/live")
 def metrics_live():
     try:
         raw    = scrape()
@@ -1147,11 +1780,48 @@ def obs_status():
 
 
 @app.route("/incidents")
+@app.route("/api/incidents")
 def incidents():
     return jsonify({"incidents": list(INCIDENT_LOG), "count": len(INCIDENT_LOG)})
 
 
+@app.route("/api/fault-events", methods=["POST"])
+def fault_events_ingest():
+    """Ingest an idempotent fault lifecycle event from the gateway outbox."""
+    body = request.get_json(silent=True) or {}
+    required = ("fault_id", "service", "fault", "status", "timestamp")
+    if any(not body.get(field) for field in required):
+        return jsonify({"error": "fault_id, service, fault, status and timestamp are required"}), 400
+    if body["service"] not in SERVICES or str(body["fault"]).upper() not in ("NONE", "LATENCY", "ERROR", "DOWN"):
+        return jsonify({"error": "invalid service or fault type"}), 400
+    if any(event.get("fault_id") == body["fault_id"] for event in FAULT_EVENTS):
+        return jsonify({"status": "duplicate", "fault_id": body["fault_id"]}), 200
+    event = {
+        "fault_id": str(body["fault_id"]),
+        "service": body["service"],
+        "microservice": body.get("microservice", f"{body['service']}-service"),
+        "fault": str(body["fault"]).upper(),
+        "description": body.get("description", "Fault injection event"),
+        "timestamp": body["timestamp"],
+        "duration_ms": int(body.get("duration_ms", body.get("delayMs", 0)) or 0),
+        "status": str(body["status"]).upper(),
+        "recovery_status": body.get("recovery_status", "PENDING"),
+        "dependencies": body.get("dependencies", []),
+        "recommendation": body.get("recommendation"),
+        "recommendation_reason": body.get("recommendation_reason"),
+    }
+    FAULT_EVENTS.append(event)
+    _save_fault_events()
+    return jsonify({"status": "recorded", "fault_id": event["fault_id"]}), 201
+
+
+@app.route("/api/fault-events", methods=["GET"])
+def fault_events():
+    return jsonify({"events": list(FAULT_EVENTS), "count": len(FAULT_EVENTS)})
+
+
 @app.route("/incidents/clear", methods=["POST"])
+@app.route("/api/incidents/clear", methods=["POST"])
 def clear_incidents():
     """Clear the incident log (useful for demo resets)."""
     INCIDENT_LOG.clear()

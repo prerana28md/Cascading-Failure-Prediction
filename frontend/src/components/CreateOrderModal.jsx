@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { PlusCircle, ShoppingBag, User, Hash, DollarSign, MapPin, CheckCircle, AlertTriangle, X, Loader2 } from 'lucide-react';
+import { PlusCircle, ShoppingBag, User, Hash, DollarSign, MapPin, CheckCircle, AlertTriangle, X, Loader2, AlertCircle } from 'lucide-react';
 
-export default function CreateOrderModal({ isOpen, onClose, selectedProduct, inventory, onSubmitOrder }) {
+export default function CreateOrderModal({ 
+  isOpen, 
+  onClose, 
+  selectedProduct, 
+  inventory, 
+  servicesHealth = {}, 
+  activeFaults = [], 
+  onSubmitOrder 
+}) {
   const [productId, setProductId] = useState('');
   const [customerId, setCustomerId] = useState('101');
   const [quantity, setQuantity] = useState(1);
@@ -21,6 +29,11 @@ export default function CreateOrderModal({ isOpen, onClose, selectedProduct, inv
   const unitPrice = activeProduct ? Number(activeProduct.price || 0) : 99.99;
   const calculatedTotal = (unitPrice * Number(quantity)).toFixed(2);
 
+  // Check if critical dependencies have active faults
+  const paymentFault = servicesHealth?.payment?.fault && servicesHealth.payment.fault !== 'NONE' ? servicesHealth.payment.fault : null;
+  const inventoryFault = servicesHealth?.inventory?.fault && servicesHealth.inventory.fault !== 'NONE' ? servicesHealth.inventory.fault : null;
+  const orderFault = servicesHealth?.order?.fault && servicesHealth.order.fault !== 'NONE' ? servicesHealth.order.fault : null;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -38,18 +51,19 @@ export default function CreateOrderModal({ isOpen, onClose, selectedProduct, inv
     try {
       const res = await onSubmitOrder(orderPayload);
       setIsSubmitting(false);
-      if (res && !res.error) {
+      if (res && !res.error && res.data) {
         setResultMessage({
           success: true,
-          text: `Order #${res.data?.id || 'SUCCESS'} placed! Triggered cascading flows across Order, Payment, Shipping & Notification services.`
+          text: `Order #${res.data?.id || 'SUCCESS'} placed! Cascading flows triggered across Order, Payment, Shipping & Notification services.`
         });
         setTimeout(() => {
           if (onClose) onClose();
         }, 1800);
       } else {
+        const errorDetail = res?.error || 'Failed to place order: Downstream microservice error.';
         setResultMessage({
           success: false,
-          text: res?.error || 'Failed to place order.'
+          text: errorDetail
         });
       }
     } catch (err) {
@@ -86,8 +100,23 @@ export default function CreateOrderModal({ isOpen, onClose, selectedProduct, inv
           </button>
         </div>
 
+        {/* Warning if dependencies are currently faulted */}
+        {(paymentFault || inventoryFault || orderFault) && (
+          <div className="mt-4 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs space-y-1">
+            <div className="flex items-center space-x-2 font-bold text-amber-400">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span>Downstream Service Outage Detected</span>
+            </div>
+            <p>
+              {paymentFault && `• Payment Service is currently ${paymentFault}. Payment step during checkout will fail. `}
+              {inventoryFault && `• Inventory Service is currently ${inventoryFault}. Stock reservation may fail. `}
+              {orderFault && `• Order Service is currently ${orderFault}. Request may be rejected. `}
+            </p>
+          </div>
+        )}
+
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           {/* Select Product */}
           <div>
             <label className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center">
@@ -172,13 +201,22 @@ export default function CreateOrderModal({ isOpen, onClose, selectedProduct, inv
 
           {/* Feedback Status */}
           {resultMessage && (
-            <div className={`p-3 rounded-lg text-xs flex items-center space-x-2 ${
+            <div className={`p-4 rounded-xl text-xs flex items-start space-x-3 ${
               resultMessage.success 
-                ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300' 
-                : 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
+                ? 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-300' 
+                : 'bg-rose-500/20 border border-rose-500/40 text-rose-200'
             }`}>
-              {resultMessage.success ? <CheckCircle className="w-4 h-4 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 flex-shrink-0" />}
-              <span>{resultMessage.text}</span>
+              {resultMessage.success ? (
+                <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
+              )}
+              <div className="space-y-0.5">
+                <div className="font-bold text-sm">
+                  {resultMessage.success ? 'Order Processed Successfully' : 'Order Processing Failed'}
+                </div>
+                <div className="text-slate-300">{resultMessage.text}</div>
+              </div>
             </div>
           )}
 
@@ -195,12 +233,12 @@ export default function CreateOrderModal({ isOpen, onClose, selectedProduct, inv
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex items-center space-x-2 px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/30 transition"
+              className="flex items-center space-x-2 px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/30 transition disabled:opacity-50"
             >
               {isSubmitting ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Processing...</span>
+                  <span>Submitting Order...</span>
                 </>
               ) : (
                 <>

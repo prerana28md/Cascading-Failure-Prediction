@@ -132,16 +132,51 @@ export async function getFaultStatus(key) {
 }
 
 /**
- * Fetch fault status for every service in parallel.
+ * Fetch fault status for every service.
+ * Tries central GET /fault/status first, falling back to parallel individual queries.
  * Never throws — failed services get { fault: null, error: string }.
  *
- * @param {string[]} keys
- * @returns {Promise<Record<string, { fault: string|null, delayMs: number, error: string|null }>>}
+ * @param {string[]} [keys]
+ * @returns {Promise<Record<string, { fault: string|null, delayMs: number, active?: boolean, error: string|null }>>}
  */
-export async function getAllFaultStatuses(keys) {
-  const settled = await Promise.allSettled(keys.map(k => getFaultStatus(k)))
+export async function getAllFaultStatuses(keys = KNOWN_SERVICES) {
+  const targetKeys = keys && keys.length ? keys : KNOWN_SERVICES
+  const { data, error } = await gw('/fault/status')
+  if (!error && data && typeof data === 'object') {
+    const sMap = {}
+    if (Array.isArray(data.services)) {
+      data.services.forEach(item => {
+        const raw = item.service || ''
+        sMap[raw] = item
+        sMap[raw.replace(/-service$/, '')] = item
+      })
+    }
+    Object.keys(data).forEach(k => {
+      if (k !== 'services') {
+        sMap[k] = data[k]
+        sMap[k.replace(/-service$/, '')] = data[k]
+      }
+    })
+
+    const out = {}
+    for (const k of targetKeys) {
+      const sData = sMap[k] || sMap[`${k}-service`] || {}
+      const f = sData.fault || sData.faultType || 'NONE'
+      out[k] = {
+        service: k,
+        fault: f,
+        delayMs: Number(sData.delayMs || sData.delay_ms || 0),
+        active: Boolean(sData.active || (f && f !== 'NONE')),
+        error: null,
+      }
+    }
+    return out
+  }
+
+  // Fallback to parallel individual queries
+  const settled = await Promise.allSettled(targetKeys.map(k => getFaultStatus(k)))
   return Object.fromEntries(
-    keys.map((k, i) => {
+    targetKeys.map((k, i) => {
       const r = settled[i]
       if (r.status === 'fulfilled' && r.value.data) {
         return [k, { ...r.value.data, error: null }]
@@ -155,38 +190,67 @@ export async function getAllFaultStatuses(keys) {
 // ── Fault injection ───────────────────────────────────────────────────────────
 
 /**
- * POST /fault/{key}-service/configure
- * body: { fault: 'LATENCY'|'ERROR'|'DOWN'|'NONE', delayMs: number }
+ * POST /fault/configure (fallback: /fault/{key}-service/configure)
+ * body: { service, fault, faultType, delayMs, delay_ms }
  *
  * @returns { data, error }
  */
 export async function injectFault(key, faultType, delayMs = 0) {
+  const payload = {
+    service:   key,
+    fault:     faultType,
+    faultType: faultType,
+    delayMs:   faultType === 'LATENCY' ? delayMs : 0,
+    delay_ms:  faultType === 'LATENCY' ? delayMs : 0,
+  }
+
+  // Primary: Central API Gateway fault controller
+  const res = await gw('/fault/configure', {
+    method: 'POST',
+    body:   JSON.stringify(payload),
+  })
+  if (!res.error) return res
+
+  // Fallback: Direct service route via gateway
   return gw(`/fault/${key}-service/configure`, {
     method: 'POST',
-    body:   JSON.stringify({
-      fault:   faultType,
-      delayMs: faultType === 'LATENCY' ? delayMs : 0,
-    }),
+    body:   JSON.stringify(payload),
   })
 }
 
 /**
- * POST /fault/{key}-service/reset
+ * POST /fault/reset (fallback: /fault/{key}-service/reset)
  * Clears whatever fault is active on this service.
  *
  * @returns { data, error }
  */
 export async function resetFault(key) {
+  const res = await gw('/fault/reset', {
+    method: 'POST',
+    body:   JSON.stringify({ service: key }),
+  })
+  if (!res.error) return res
+
   return gw(`/fault/${key}-service/reset`, { method: 'POST' })
 }
 
 /**
- * Reset all services sequentially.
+ * Reset all services.
+ * Uses atomic /fault/reset with service: 'ALL', falling back to sequential reset.
  * Returns array of { key, ok, error }.
  */
-export async function resetAllFaults(keys) {
+export async function resetAllFaults(keys = KNOWN_SERVICES) {
+  const targetKeys = keys && keys.length ? keys : KNOWN_SERVICES
+  const res = await gw('/fault/reset', {
+    method: 'POST',
+    body:   JSON.stringify({ service: 'ALL' }),
+  })
+  if (!res.error) {
+    return targetKeys.map(k => ({ key: k, ok: true, error: null }))
+  }
+
   const results = []
-  for (const k of keys) {
+  for (const k of targetKeys) {
     const { error } = await resetFault(k)
     results.push({ key: k, ok: !error, error: error ?? null })
   }

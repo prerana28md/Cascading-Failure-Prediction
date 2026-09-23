@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
-import { Package, Search, RefreshCw, Compass, Clock, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { Package, Search, RefreshCw, Compass, Clock, CheckCircle2, XCircle, AlertCircle, AlertTriangle } from 'lucide-react';
 
-export default function OrdersList({ orders, loading, error, onRefresh, onSelectTrackOrder }) {
+export default function OrdersList({ orders, loading, error, serviceHealth, onRefresh, onSelectTrackOrder }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+
+  const isFaulted = serviceHealth?.fault && serviceHealth.fault !== 'NONE';
+  const faultType = serviceHealth?.fault;
 
   const filteredOrders = (orders || []).filter(order => {
     const matchesSearch = 
@@ -24,11 +27,18 @@ export default function OrdersList({ orders, loading, error, onRefresh, onSelect
           COMPLETED
         </span>
       );
-    } else if (s === 'PENDING') {
+    } else if (s === 'PENDING' || s === 'PROCESSING') {
       return (
         <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
           <Clock className="w-3 h-3 mr-1" />
-          PENDING
+          {s}
+        </span>
+      );
+    } else if (s === 'PAYMENT_FAILED') {
+      return (
+        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-500/50">
+          <XCircle className="w-3 h-3 mr-1" />
+          PAYMENT FAILED
         </span>
       );
     } else {
@@ -48,7 +58,7 @@ export default function OrdersList({ orders, loading, error, onRefresh, onSelect
         <div className="space-y-1">
           <div className="flex items-center space-x-2 text-indigo-400 text-xs font-semibold">
             <Package className="w-4 h-4" />
-            <span>Order Microservice (/orders)</span>
+            <span>Order Microservice (/orders) &bull; Port :8081</span>
           </div>
           <h2 className="text-xl font-bold text-white">Orders Directory</h2>
           <p className="text-slate-400 text-xs">
@@ -65,6 +75,24 @@ export default function OrdersList({ orders, loading, error, onRefresh, onSelect
         </button>
       </div>
 
+      {/* Outage / Fault Notice */}
+      {(error || isFaulted) && (
+        <div className="p-5 rounded-2xl bg-rose-950/80 border border-rose-800/80 text-rose-200 text-xs space-y-2 shadow-lg animate-in fade-in duration-200">
+          <div className="flex items-center space-x-2 font-bold text-sm text-rose-300">
+            <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0" />
+            <span>Order Microservice Outage Detected</span>
+            {faultType && (
+              <span className="px-2 py-0.5 rounded bg-rose-900 border border-rose-700 text-[10px] font-extrabold uppercase">
+                {faultType}
+              </span>
+            )}
+          </div>
+          <p className="text-slate-300">
+            {error || `Order Service (:8081) is experiencing a ${faultType} fault. Order processing and retrieval are currently impacted.`}
+          </p>
+        </div>
+      )}
+
       {/* Filter and Search */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-900/60 p-4 rounded-xl border border-slate-800">
         <div className="relative w-full sm:w-80">
@@ -79,7 +107,7 @@ export default function OrdersList({ orders, loading, error, onRefresh, onSelect
         </div>
 
         <div className="flex items-center space-x-2 w-full sm:w-auto overflow-x-auto">
-          {['ALL', 'COMPLETED', 'PENDING', 'FAILED'].map(st => (
+          {['ALL', 'COMPLETED', 'PROCESSING', 'PAYMENT_FAILED', 'FAILED'].map(st => (
             <button
               key={st}
               onClick={() => setStatusFilter(st)}
@@ -94,14 +122,6 @@ export default function OrdersList({ orders, loading, error, onRefresh, onSelect
           ))}
         </div>
       </div>
-
-      {/* Error state */}
-      {error && (
-        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center space-x-3">
-          <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0" />
-          <span>Notice: {error}. Displaying mock records.</span>
-        </div>
-      )}
 
       {/* Orders Table */}
       <div className="overflow-x-auto rounded-2xl bg-slate-900/80 border border-slate-800 shadow-xl">
@@ -120,7 +140,7 @@ export default function OrdersList({ orders, loading, error, onRefresh, onSelect
           <tbody className="divide-y divide-slate-800/60 font-mono">
             {loading && (
               <tr>
-                <td colSpan="7" className="py-8 text-center text-slate-500">
+                <td colSpan="7" className="py-8 text-center text-slate-500 font-sans">
                   <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-indigo-400" />
                   <span>Loading orders...</span>
                 </td>
@@ -130,18 +150,20 @@ export default function OrdersList({ orders, loading, error, onRefresh, onSelect
             {!loading && filteredOrders.map((order) => (
               <tr key={order.id} className="hover:bg-slate-800/40 transition">
                 <td className="py-3.5 px-4 font-bold text-indigo-300">#{order.id}</td>
-                <td className="py-3.5 px-4 text-slate-300">Cust-{order.customerId}</td>
-                <td className="py-3.5 px-4 text-slate-300">Prod-{order.productId}</td>
-                <td className="py-3.5 px-4 font-bold text-white">{order.quantity}</td>
+                <td className="py-3.5 px-4 font-sans text-slate-300">User-{order.customerId}</td>
+                <td className="py-3.5 px-4 text-slate-300">PRD-{order.productId}</td>
+                <td className="py-3.5 px-4 font-bold">{order.quantity}</td>
                 <td className="py-3.5 px-4 font-bold text-emerald-400">${Number(order.amount || 0).toFixed(2)}</td>
-                <td className="py-3.5 px-4">{getStatusBadge(order.status)}</td>
+                <td className="py-3.5 px-4">
+                  {getStatusBadge(order.status)}
+                </td>
                 <td className="py-3.5 px-4 text-right">
                   <button
                     onClick={() => onSelectTrackOrder(order)}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 text-indigo-300 border border-indigo-500/40 hover:bg-indigo-600 hover:text-white text-[11px] font-semibold transition"
+                    className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 text-xs font-semibold transition"
                   >
                     <Compass className="w-3.5 h-3.5" />
-                    <span>Track Lifecycle</span>
+                    <span>Track Trace</span>
                   </button>
                 </td>
               </tr>
@@ -149,8 +171,15 @@ export default function OrdersList({ orders, loading, error, onRefresh, onSelect
 
             {!loading && filteredOrders.length === 0 && (
               <tr>
-                <td colSpan="7" className="py-8 text-center text-slate-500 font-sans">
-                  No orders found. Place a new order using the "Create Order" button!
+                <td colSpan="7" className="py-10 text-center text-slate-500 font-sans">
+                  {isFaulted || error ? (
+                    <div className="space-y-1">
+                      <p className="text-rose-300 font-semibold">Orders unavailable</p>
+                      <p className="text-xs text-slate-500">Service is down or unreachable. Orders will appear once order-service recovers.</p>
+                    </div>
+                  ) : (
+                    <span>No orders found.</span>
+                  )}
                 </td>
               </tr>
             )}

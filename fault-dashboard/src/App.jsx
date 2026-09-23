@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import {
   FlaskConical, RefreshCw, RotateCcw, X, CheckCircle,
   AlertTriangle, Wifi, WifiOff, Clock, Zap, ServerCrash,
-  ExternalLink, ChevronDown, ChevronUp,
+  ExternalLink, ChevronDown, ChevronUp, Store,
 } from 'lucide-react'
 import {
   KNOWN_SERVICES, FAULT_TYPES, FAULT_COLORS,
@@ -238,6 +238,17 @@ export default function App() {
             <RefreshCw size={12} className={loadingStates ? 'animate-spin' : ''} />
           </button>
 
+          {/* Link to customer store */}
+          <a
+            href="http://localhost:3000"
+            target="_blank"
+            rel="noreferrer"
+            className="hidden sm:flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors"
+          >
+            <Store size={10} />
+            OmniStore (:3000)
+          </a>
+
           {/* Link to developer dashboard */}
           <a
             href="http://localhost:4000"
@@ -246,7 +257,7 @@ export default function App() {
             className="hidden sm:flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-300 transition-colors"
           >
             <ExternalLink size={10} />
-            Dashboard
+            Dashboard (:4000)
           </a>
 
         </div>

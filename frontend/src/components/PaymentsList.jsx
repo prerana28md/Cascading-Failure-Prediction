@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
-import { CreditCard, Search, RefreshCw, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
+import { CreditCard, Search, RefreshCw, CheckCircle2, Clock, AlertCircle, AlertTriangle } from 'lucide-react';
 
-export default function PaymentsList({ payments, loading, error, onRefresh }) {
+export default function PaymentsList({ payments, loading, error, serviceHealth, onRefresh }) {
   const [searchTerm, setSearchTerm] = useState('');
+
+  const isFaulted = serviceHealth?.fault && serviceHealth.fault !== 'NONE';
+  const faultType = serviceHealth?.fault;
 
   const filteredPayments = (payments || []).filter(p => 
     String(p.id || '').includes(searchTerm) ||
@@ -16,22 +19,40 @@ export default function PaymentsList({ payments, loading, error, onRefresh }) {
         <div className="space-y-1">
           <div className="flex items-center space-x-2 text-indigo-400 text-xs font-semibold">
             <CreditCard className="w-4 h-4" />
-            <span>Payment Microservice (/payments)</span>
+            <span>Payment Microservice (/payments) &bull; Port :8082</span>
           </div>
           <h2 className="text-xl font-bold text-white">Payment Transactions</h2>
           <p className="text-slate-400 text-xs">
-            Monitor real-time payment records processed by Payment Service following order placements.
+            Live payment entity records processed by Payment Service following customer checkout.
           </p>
         </div>
 
         <button
           onClick={onRefresh}
-          className="flex items-center space-x-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition"
+          className="flex items-center space-x-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition self-start sm:self-center"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           <span>Refresh List</span>
         </button>
       </div>
+
+      {/* Outage / Fault Notice */}
+      {(error || isFaulted) && (
+        <div className="p-5 rounded-2xl bg-rose-950/80 border border-rose-800/80 text-rose-200 text-xs space-y-2 shadow-lg animate-in fade-in duration-200">
+          <div className="flex items-center space-x-2 font-bold text-sm text-rose-300">
+            <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0" />
+            <span>Payment Microservice Outage Detected</span>
+            {faultType && (
+              <span className="px-2 py-0.5 rounded bg-rose-900 border border-rose-700 text-[10px] font-extrabold uppercase">
+                {faultType}
+              </span>
+            )}
+          </div>
+          <p className="text-slate-300">
+            {error || `Payment Service (:8082) is currently experiencing a ${faultType} fault. Incoming checkout payments and transaction lookups are failing.`}
+          </p>
+        </div>
+      )}
 
       {/* Filter */}
       <div className="relative w-full sm:w-80">
@@ -44,14 +65,6 @@ export default function PaymentsList({ payments, loading, error, onRefresh }) {
           className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-4 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
         />
       </div>
-
-      {/* Error */}
-      {error && (
-        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center space-x-3">
-          <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0" />
-          <span>Notice: {error}. Showing mock payment records.</span>
-        </div>
-      )}
 
       {/* Table */}
       <div className="overflow-x-auto rounded-2xl bg-slate-900/80 border border-slate-800 shadow-xl">
@@ -69,7 +82,7 @@ export default function PaymentsList({ payments, loading, error, onRefresh }) {
           <tbody className="divide-y divide-slate-800/60 font-mono">
             {loading && (
               <tr>
-                <td colSpan="6" className="py-8 text-center text-slate-500">
+                <td colSpan="6" className="py-8 text-center text-slate-500 font-sans">
                   <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-indigo-400" />
                   <span>Loading payment records...</span>
                 </td>
@@ -103,8 +116,15 @@ export default function PaymentsList({ payments, loading, error, onRefresh }) {
 
             {!loading && filteredPayments.length === 0 && (
               <tr>
-                <td colSpan="6" className="py-8 text-center text-slate-500 font-sans">
-                  No payment records found.
+                <td colSpan="6" className="py-10 text-center text-slate-500 font-sans">
+                  {isFaulted || error ? (
+                    <div className="space-y-1">
+                      <p className="text-rose-300 font-semibold">Payment transactions unavailable</p>
+                      <p className="text-xs text-slate-500">Service is down or unreachable. Live records will appear when payment-service recovers.</p>
+                    </div>
+                  ) : (
+                    <span>No payment transactions found.</span>
+                  )}
                 </td>
               </tr>
             )}

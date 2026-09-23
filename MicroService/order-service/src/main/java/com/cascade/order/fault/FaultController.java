@@ -1,5 +1,7 @@
 package com.cascade.order.fault;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -8,7 +10,7 @@ import java.util.Map;
 /**
  * Failure-injection control endpoints for order-service.
  *
- *  POST /fault/configure   { "fault": "LATENCY|ERROR|DOWN|NONE", "delayMs": 2000 }
+ *  POST /fault/configure   { "faultType": "LATENCY|ERROR|DOWN|NONE", "delayMs": 2000 }
  *  POST /fault/reset
  *  GET  /fault/status
  */
@@ -16,6 +18,9 @@ import java.util.Map;
 @RequestMapping("/fault")
 @CrossOrigin
 public class FaultController {
+
+    private static final Logger log = LoggerFactory.getLogger(FaultController.class);
+    private static final String SERVICE_NAME = "order-service";
 
     private final FaultState faultState;
 
@@ -25,8 +30,23 @@ public class FaultController {
 
     @PostMapping("/configure")
     public ResponseEntity<Map<String, Object>> configure(@RequestBody Map<String, Object> body) {
-        String faultStr = (String) body.getOrDefault("fault", "NONE");
-        int delayMs     = Integer.parseInt(body.getOrDefault("delayMs", "0").toString());
+        String faultStr = body.containsKey("faultType")
+                ? String.valueOf(body.get("faultType"))
+                : String.valueOf(body.getOrDefault("fault", "NONE"));
+
+        Object delayVal = body.containsKey("delayMs")
+                ? body.get("delayMs")
+                : body.getOrDefault("delay_ms", 0);
+        int delayMs;
+        try {
+            delayMs = Integer.parseInt(String.valueOf(delayVal));
+        } catch (NumberFormatException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", "delayMs must be an integer"));
+        }
+
+        if (delayMs < 0) {
+            return ResponseEntity.badRequest().body(Map.of("error", "delayMs cannot be negative"));
+        }
 
         FaultState.FaultType fault;
         try {
@@ -34,30 +54,45 @@ public class FaultController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "Unknown fault type: " + faultStr,
-                                 "valid",  "NONE, LATENCY, ERROR, DOWN"));
+                                 "valid", "NONE, LATENCY, ERROR, DOWN"));
         }
 
         faultState.configure(fault, delayMs);
+        log.warn("Fault injection configured: service={} fault={} delayMs={}", SERVICE_NAME, fault.name(), delayMs);
+
         return ResponseEntity.ok(Map.of(
-                "service",  "order-service",
-                "fault",    fault.name(),
-                "delayMs",  delayMs,
-                "status",   "APPLIED"
+                "service",   SERVICE_NAME,
+                "fault",     fault.name(),
+                "faultType", fault.name(),
+                "delayMs",   delayMs,
+                "status",    "APPLIED",
+                "active",    fault != FaultState.FaultType.NONE
         ));
     }
 
     @PostMapping("/reset")
     public ResponseEntity<Map<String, Object>> reset() {
         faultState.reset();
-        return ResponseEntity.ok(Map.of("service", "order-service", "status", "RESET"));
+        log.info("Fault injection reset: service={}", SERVICE_NAME);
+        return ResponseEntity.ok(Map.of(
+                "service",   SERVICE_NAME,
+                "fault",     "NONE",
+                "faultType", "NONE",
+                "delayMs",   0,
+                "status",    "RESET",
+                "active",    false
+        ));
     }
 
     @GetMapping("/status")
     public ResponseEntity<Map<String, Object>> status() {
+        boolean active = faultState.getActiveFault() != FaultState.FaultType.NONE;
         return ResponseEntity.ok(Map.of(
-                "service", "order-service",
-                "fault",   faultState.getActiveFault().name(),
-                "delayMs", faultState.getDelayMs()
+                "service",   SERVICE_NAME,
+                "fault",     faultState.getActiveFault().name(),
+                "faultType", faultState.getActiveFault().name(),
+                "delayMs",   faultState.getDelayMs(),
+                "active",    active
         ));
     }
 }

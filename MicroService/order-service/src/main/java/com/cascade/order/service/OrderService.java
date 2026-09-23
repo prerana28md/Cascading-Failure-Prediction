@@ -121,8 +121,11 @@ public class OrderService {
             restTemplate.postForObject(paymentServiceUrl + "/payments", paymentReq, Object.class);
             log.info("Payment initiated for order {}", savedOrder.getId());
         } catch (Exception e) {
-            log.warn("Payment service warning for order {}: {}", savedOrder.getId(), e.getMessage());
-            // Non-fatal – payment team can reconcile asynchronously
+            log.error("Payment service failure for order {}: {}", savedOrder.getId(), e.getMessage());
+            savedOrder.setStatus("PAYMENT_FAILED");
+            savedOrder.setStatusReason("Payment processing failed: Payment Service is unavailable or returned an error (" + e.getMessage() + ")");
+            orderRepository.save(savedOrder);
+            throw new RuntimeException("Payment Service error: Unable to process payment (" + e.getMessage() + ")");
         }
 
         // ── 4. Shipping ────────────────────────────────────────────────────────
@@ -135,6 +138,8 @@ public class OrderService {
             log.info("Shipment created for order {}", savedOrder.getId());
         } catch (Exception e) {
             log.warn("Shipping service warning for order {}: {}", savedOrder.getId(), e.getMessage());
+            savedOrder.setStatusReason("Shipping warning: " + e.getMessage());
+            orderRepository.save(savedOrder);
         }
 
         // ── 5. Mark PROCESSING ─────────────────────────────────────────────────
