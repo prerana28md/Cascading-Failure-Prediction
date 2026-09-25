@@ -43,6 +43,20 @@ export async function clearIncidents() {
   return apiFetch(`${ML_API}/api/incidents/clear`, { method: 'POST' })
 }
 
+/**
+ * Add a developer resolution note to a resolved incident.
+ * @param {string|number} id  incident id
+ * @param {string} resolvedBy developer name
+ * @param {string} note       resolution message
+ */
+export async function resolveIncident(id, resolvedBy, note) {
+  return apiFetch(`${ML_API}/api/incidents/resolve`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ id, resolved_by: resolvedBy, note }),
+  })
+}
+
 export const KNOWN_SERVICES = ['order', 'payment', 'inventory', 'shipping', 'delivery', 'notification']
 
 // ── Fault Injection API (via API Gateway) ───────────────────────────────────

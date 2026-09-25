@@ -1830,6 +1830,44 @@ def clear_incidents():
     return jsonify({"status": "cleared"})
 
 
+@app.route("/incidents/resolve", methods=["POST"])
+@app.route("/api/incidents/resolve", methods=["POST"])
+def resolve_incident():
+    """
+    Attach a developer resolution note to a RESOLVED incident.
+    Body: { "id": <incident_id>, "resolved_by": "Alice", "note": "Restarted pod" }
+    Finds the matching incident by id and adds the note fields in-place.
+    """
+    body = request.get_json(force=True) or {}
+    incident_id  = body.get("id")
+    resolved_by  = (body.get("resolved_by") or "").strip()
+    note         = (body.get("note")        or "").strip()
+
+    if not incident_id:
+        return jsonify({"error": "id is required"}), 400
+    if not resolved_by:
+        return jsonify({"error": "resolved_by is required"}), 400
+    if not note:
+        return jsonify({"error": "note is required"}), 400
+
+    # INCIDENT_LOG is a deque of dicts — find the entry by id
+    target = None
+    for entry in INCIDENT_LOG:
+        if str(entry.get("id")) == str(incident_id):
+            target = entry
+            break
+
+    if target is None:
+        return jsonify({"error": f"Incident {incident_id} not found"}), 404
+
+    target["resolved_by"] = resolved_by
+    target["resolution_note"] = note
+    target["resolution_ts"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    _save_incident_log()
+
+    return jsonify({"status": "ok", "incident": target})
+
+
 @app.route("/predict", methods=["POST"])
 def predict():
     try:

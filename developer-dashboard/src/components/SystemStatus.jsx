@@ -71,15 +71,17 @@ export function StatusRow({ status = 'UNKNOWN' }) {
 /**
  * ServiceStatusDot — tiny coloured dot + label for a single service.
  * Derives status from service_up + error_rate + p99.
+ * Noise floor: values below these thresholds are treated as 0 (Prometheus
+ * bucket arithmetic produces tiny non-zero floats when no traffic is flowing).
  */
 export function deriveServiceStatus(metrics) {
   if (!metrics) return 'UNKNOWN'
   const up  = metrics.service_up ?? 1
-  const err = metrics.error_rate_5xx ?? 0
-  const p99 = metrics.p99_latency_s ?? 0
-  if (up === 0)      return 'DOWN'
-  if (err > 0.05 || p99 > 1.5) return 'DEGRADED'
-  if (err > 0.01 || p99 > 0.8) return 'WARNING'
+  const err = (metrics.error_rate_5xx ?? 0) < 0.001 ? 0 : (metrics.error_rate_5xx ?? 0)
+  const p99 = (metrics.p99_latency_s  ?? 0) < 0.005 ? 0 : (metrics.p99_latency_s  ?? 0)
+  if (up === 0)                   return 'DOWN'
+  if (err > 0.05 || p99 > 1.5)   return 'DEGRADED'
+  if (err > 0.01 || p99 > 0.8)   return 'WARNING'
   return 'HEALTHY'
 }
 

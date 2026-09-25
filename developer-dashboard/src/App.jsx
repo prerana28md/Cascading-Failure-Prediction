@@ -39,7 +39,14 @@ export default function App() {
 
       setRiskHistory(prev => [
         ...prev.slice(-(MAX_HISTORY - 1)),
-        { t: now, risk: json.cascade_risk ?? 0, level: json.risk_level ?? 'LOW' },
+        {
+          t:     now,
+          // Store criticality_percentage as the sparkline value so it always
+          // matches the gauge (which also shows criticality_percentage).
+          // Falls back to cascade_risk*100 if the new field isn't present.
+          risk:  json.criticality_percentage ?? Math.round((json.cascade_risk ?? 0) * 100),
+          level: json.risk_level ?? 'LOW',
+        },
       ])
 
       const keys = deriveServiceKeys(json.live_metrics)
@@ -90,6 +97,7 @@ export default function App() {
         autoRefresh={autoRefresh}
         setAutoRefresh={setAutoRefresh}
         riskLevel={riskLevel}
+        obsStatus={data?.observability_status ?? {}}
       />
 
       {/* API offline banner */}

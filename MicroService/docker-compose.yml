@@ -351,6 +351,7 @@ services:
 # VOLUMES  (persistent storage for observability data)
 # ════════════════════════════════════════════════════════════════════════════
 volumes:
+  
   prometheus-data:
   grafana-data:
   loki-data:
