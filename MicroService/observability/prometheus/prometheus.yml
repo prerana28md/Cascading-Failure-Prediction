@@ -65,3 +65,44 @@ scrape_configs:
       - targets: ['172.28.0.20:8086']
         labels:
           service: 'notification-service'
+
+  # ── MovieStream Microservices ─────────────────────────────────────────────
+  - job_name: 'catalog-service'
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['192.168.0.102:8087']
+        labels:
+          service: 'catalog-service'
+
+  - job_name: 'user-service'
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['192.168.0.102:8088']
+        labels:
+          service: 'user-service'
+
+  - job_name: 'watchlist-service'
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['192.168.0.102:8089']
+        labels:
+          service: 'watchlist-service'
+
+  - job_name: 'history-service'
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['192.168.0.102:8092']
+        labels:
+          service: 'history-service'
+
+  - job_name: 'recommendation-service'
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['192.168.0.102:8093']
+        labels:
+          service: 'recommendation-service'

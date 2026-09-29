@@ -15,6 +15,31 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/gateway/, '')
+      },
+      '/ms-catalog': {
+        target: 'http://localhost:8087',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ms-catalog/, '')
+      },
+      '/ms-user': {
+        target: 'http://localhost:8088',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ms-user/, '')
+      },
+      '/ms-watchlist': {
+        target: 'http://localhost:8089',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ms-watchlist/, '')
+      },
+      '/ms-history': {
+        target: 'http://localhost:8092',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ms-history/, '')
+      },
+      '/ms-recommendation': {
+        target: 'http://localhost:8093',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ms-recommendation/, '')
       }
     }
   }

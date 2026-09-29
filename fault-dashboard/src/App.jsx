@@ -5,7 +5,7 @@ import {
   ExternalLink, ChevronDown, ChevronUp, Store,
 } from 'lucide-react'
 import {
-  KNOWN_SERVICES, FAULT_TYPES, FAULT_COLORS,
+  KNOWN_SERVICES, WORKLOAD_SERVICES, FAULT_TYPES, FAULT_COLORS,
   checkGatewayHealth, getAllFaultStatuses,
   injectFault, resetFault, resetAllFaults,
   serviceLabel,
@@ -41,11 +41,15 @@ const FAULT_TYPE_STYLES = {
 
 // ── Root App ─────────────────────────────────────────────────────────────────
 export default function App() {
+  // Workload selection
+  const [workload,      setWorkload]      = useState('omnistore')
+  const currentServices = WORKLOAD_SERVICES[workload] ?? WORKLOAD_SERVICES.omnistore
+
   // Gateway connectivity
   const [gwHealth,      setGwHealth]      = useState({ up: false, status: 'CHECKING', error: null })
   const [checkingGw,    setCheckingGw]    = useState(true)
 
-  // Per-service fault states — fetched from Gateway, never invented
+  // Per-service fault states
   const [faultStates,   setFaultStates]   = useState({})   // { [key]: { fault, delayMs, error } }
   const [loadingStates, setLoadingStates] = useState(false)
   const [autoRefresh,   setAutoRefresh]   = useState(true)
@@ -53,7 +57,7 @@ export default function App() {
   const pollRef = useRef(null)
 
   // Inject form
-  const [selService, setSelService] = useState(KNOWN_SERVICES[0])
+  const [selService, setSelService] = useState(currentServices[0])
   const [selFault,   setSelFault]   = useState('LATENCY')
   const [delayMs,    setDelayMs]    = useState(2000)
 
@@ -62,6 +66,16 @@ export default function App() {
   const [injecting,  setInjecting]  = useState(false)
   const [resetting,  setResetting]  = useState(null)   // key | 'ALL' | null
   const [confirmAll, setConfirmAll] = useState(false)
+
+  const handleWorkloadChange = (nextWorkload) => {
+    if (nextWorkload === workload) return
+    setWorkload(nextWorkload)
+    const nextServices = WORKLOAD_SERVICES[nextWorkload] ?? WORKLOAD_SERVICES.omnistore
+    setSelService(nextServices[0])
+    setFaultStates({})
+    setConfirmAll(false)
+    setFeedback(null)
+  }
 
   // ── Gateway health check ──────────────────────────────────────────────────
   const pingGateway = useCallback(async () => {
@@ -73,29 +87,32 @@ export default function App() {
   }, [])
 
   // ── Fetch all fault statuses ──────────────────────────────────────────────
-  const refreshStatuses = useCallback(async () => {
+  const refreshStatuses = useCallback(async (targetKeys = currentServices) => {
     setLoadingStates(true)
-    const states = await getAllFaultStatuses(KNOWN_SERVICES)
+    const states = await getAllFaultStatuses(targetKeys)
     setFaultStates(states)
     setLastFetched(new Date())
     setLoadingStates(false)
-  }, [])
+  }, [currentServices])
 
   // ── Boot: health check then load statuses ─────────────────────────────────
   useEffect(() => {
-    pingGateway().then(up => { if (up) refreshStatuses() })
-  }, [])
+    pingGateway()
+    refreshStatuses(currentServices)
+  }, [pingGateway, refreshStatuses, currentServices])
 
   // ── Auto-refresh polling ──────────────────────────────────────────────────
   useEffect(() => {
     if (!autoRefresh) { clearInterval(pollRef.current); return }
     pollRef.current = setInterval(async () => {
-      const up = (await checkGatewayHealth()).up
-      setGwHealth(prev => ({ ...prev, up }))
-      if (up) refreshStatuses()
+      if (workload === 'omnistore') {
+        const up = (await checkGatewayHealth()).up
+        setGwHealth(prev => ({ ...prev, up }))
+      }
+      refreshStatuses(currentServices)
     }, STATUS_POLL_MS)
     return () => clearInterval(pollRef.current)
-  }, [autoRefresh, refreshStatuses])
+  }, [autoRefresh, refreshStatuses, currentServices, workload])
 
   // Clear feedback after 6 s
   useEffect(() => {
@@ -121,11 +138,11 @@ export default function App() {
       setFeedback({
         ok:     false,
         title:  'Injection failed',
-        detail: error ?? 'Unknown error — check the gateway is running',
+        detail: error ?? 'Unknown error — check the target service is running',
       })
     }
     setInjecting(false)
-    await refreshStatuses()
+    await refreshStatuses(currentServices)
   }
 
   async function handleReset(key) {
@@ -136,7 +153,7 @@ export default function App() {
       setFeedback({ ok: false, title: 'Reset failed', detail: error })
     }
     setResetting(null)
-    await refreshStatuses()
+    await refreshStatuses(currentServices)
   }
 
   async function handleResetAll() {
@@ -144,19 +161,19 @@ export default function App() {
     setConfirmAll(false)
     setResetting('ALL')
     setFeedback(null)
-    const results = await resetAllFaults(KNOWN_SERVICES)
+    const results = await resetAllFaults(currentServices)
     const failed  = results.filter(r => !r.ok)
     if (failed.length) {
       setFeedback({ ok: false, title: 'Some resets failed', detail: failed.map(r => r.key).join(', ') })
     } else {
-      setFeedback({ ok: true, title: 'All faults cleared', detail: `${KNOWN_SERVICES.length} services reset` })
+      setFeedback({ ok: true, title: 'All faults cleared', detail: `${currentServices.length} services reset` })
     }
     setResetting(null)
-    await refreshStatuses()
+    await refreshStatuses(currentServices)
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────
-  const activeFaults = KNOWN_SERVICES.filter(k => {
+  const activeFaults = currentServices.filter(k => {
     const s = faultStates[k]
     return s?.fault && s.fault !== 'NONE'
   })
@@ -175,21 +192,44 @@ export default function App() {
 
           {/* Brand */}
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-md bg-amber-700/80 flex items-center justify-center">
+            <div className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
+              workload === 'moviestream' ? 'bg-purple-700/90' : 'bg-amber-700/80'
+            }`}>
               <FlaskConical size={14} className="text-white" />
             </div>
             <div className="leading-none">
               <p className="text-sm font-semibold text-slate-100">Fault Injection Lab</p>
-              <p className="text-[10px] text-slate-500 mt-0.5">OmniStore · Engineering Tool</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">
+                {workload === 'moviestream' ? 'MovieStream · Fault Lab' : 'OmniStore · Engineering Tool'}
+              </p>
             </div>
           </div>
 
           <div className="h-5 w-px bg-slate-800" />
 
-          {/* Environment badge */}
-          <span className="text-[10px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border border-amber-800/50 bg-amber-950/40 text-amber-500">
-            Test Environment
-          </span>
+          {/* Workload Switcher */}
+          <div className="flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-700/80 shrink-0">
+            <button
+              onClick={() => handleWorkloadChange('omnistore')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                workload === 'omnistore'
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+              }`}
+            >
+              <span>🛍️</span> OmniStore
+            </button>
+            <button
+              onClick={() => handleWorkloadChange('moviestream')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                workload === 'moviestream'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+              }`}
+            >
+              <span>🎬</span> MovieStream
+            </button>
+          </div>
 
           <div className="flex-1" />
 
@@ -231,7 +271,7 @@ export default function App() {
 
           {/* Manual refresh */}
           <button
-            onClick={() => { pingGateway().then(up => { if (up) refreshStatuses() }) }}
+            onClick={() => { pingGateway(); refreshStatuses(currentServices) }}
             disabled={loadingStates || checkingGw}
             className="p-1.5 rounded border border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200 disabled:opacity-40 transition-colors"
           >
@@ -240,13 +280,13 @@ export default function App() {
 
           {/* Link to customer store */}
           <a
-            href="http://localhost:3000"
+            href={workload === 'moviestream' ? 'http://localhost:3002' : 'http://localhost:3000'}
             target="_blank"
             rel="noreferrer"
             className="hidden sm:flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors"
           >
             <Store size={10} />
-            OmniStore (:3000)
+            {workload === 'moviestream' ? 'MovieStream (:3002)' : 'OmniStore (:3000)'}
           </a>
 
           {/* Link to developer dashboard */}
@@ -307,7 +347,7 @@ export default function App() {
           {/* Left — Inject form (2 cols) */}
           <div className="lg:col-span-2">
             <InjectForm
-              services={KNOWN_SERVICES}
+              services={currentServices}
               selService={selService}
               setSelService={setSelService}
               selFault={selFault}
@@ -324,14 +364,14 @@ export default function App() {
           <div className="lg:col-span-3 space-y-2">
             <div className="flex items-center justify-between mb-1">
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Service Status
+                Service Status ({workload === 'moviestream' ? 'MovieStream' : 'OmniStore'})
               </p>
               {loadingStates && (
                 <RefreshCw size={11} className="text-slate-600 animate-spin" />
               )}
             </div>
 
-            {KNOWN_SERVICES.map(key => (
+            {currentServices.map(key => (
               <ServiceStatusCard
                 key={key}
                 serviceKey={key}

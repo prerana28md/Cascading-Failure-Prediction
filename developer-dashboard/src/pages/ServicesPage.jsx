@@ -15,21 +15,31 @@ import { deriveServiceStatus, SERVICE_STATUS_CFG } from '../components/SystemSta
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const SLA = {
-  order:        { maxErr: 0.01,  maxP99: 0.5  },
-  payment:      { maxErr: 0.005, maxP99: 0.8  },
-  inventory:    { maxErr: 0.01,  maxP99: 0.3  },
-  shipping:     { maxErr: 0.02,  maxP99: 1.0  },
-  delivery:     { maxErr: 0.02,  maxP99: 1.0  },
-  notification: { maxErr: 0.02,  maxP99: 0.5  },
+  order:          { maxErr: 0.01,  maxP99: 0.5  },
+  payment:        { maxErr: 0.005, maxP99: 0.8  },
+  inventory:      { maxErr: 0.01,  maxP99: 0.3  },
+  shipping:       { maxErr: 0.02,  maxP99: 1.0  },
+  delivery:       { maxErr: 0.02,  maxP99: 1.0  },
+  notification:   { maxErr: 0.02,  maxP99: 0.5  },
+  catalog:        { maxErr: 0.01,  maxP99: 0.4  },
+  user:           { maxErr: 0.01,  maxP99: 0.3  },
+  watchlist:      { maxErr: 0.01,  maxP99: 0.3  },
+  history:        { maxErr: 0.02,  maxP99: 0.5  },
+  recommendation: { maxErr: 0.02,  maxP99: 0.6  },
 }
 
 const SERVICE_COLOR = {
-  order:        '#6366f1',
-  payment:      '#22d3ee',
-  inventory:    '#f59e0b',
-  shipping:     '#34d399',
-  delivery:     '#f97316',
-  notification: '#a78bfa',
+  order:          '#6366f1',
+  payment:        '#22d3ee',
+  inventory:      '#f59e0b',
+  shipping:       '#34d399',
+  delivery:       '#f97316',
+  notification:   '#a78bfa',
+  catalog:        '#ec4899',
+  user:           '#06b6d4',
+  watchlist:      '#8b5cf6',
+  history:        '#f59e0b',
+  recommendation: '#10b981',
 }
 
 const SORT_OPTIONS = [
@@ -50,7 +60,19 @@ function toLabel(key) {
 }
 function clean(v, floor = 0)  { return (v ?? 0) < floor ? 0 : (v ?? 0) }
 function getPort(key) {
-  return { order: 8081, payment: 8082, inventory: 8083, shipping: 8084, delivery: 8085, notification: 8086 }[key] ?? '?'
+  return {
+    order: 8081,
+    payment: 8082,
+    inventory: 8083,
+    shipping: 8084,
+    delivery: 8085,
+    notification: 8086,
+    catalog: 8087,
+    user: 8088,
+    watchlist: 8089,
+    history: 8092,
+    recommendation: 8093,
+  }[key] ?? '?'
 }
 
 // ── Custom tooltip ────────────────────────────────────────────────────────────

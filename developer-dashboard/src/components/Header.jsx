@@ -45,6 +45,8 @@ export default function Header({
   onRefresh, autoRefresh, setAutoRefresh,
   riskLevel = 'LOW',
   obsStatus = {},       // data?.observability_status from App.jsx
+  workload = 'omnistore',
+  setWorkload,
 }) {
   const [obsOpen, setObsOpen] = useState(false)
   const dropRef = useRef(null)
@@ -79,7 +81,7 @@ export default function Header({
   return (
     <header className="sticky top-0 z-50 bg-[#0a0f1e] border-b border-slate-800">
       <div className="max-w-screen-xl mx-auto px-4 sm:px-6">
-        <div className="flex items-center h-14 gap-5">
+        <div className="flex items-center h-14 gap-4">
 
           {/* Brand */}
           <div className="flex items-center gap-2.5 shrink-0">
@@ -90,6 +92,30 @@ export default function Header({
               <span className="text-sm font-semibold text-slate-100 tracking-tight">Control Center</span>
               <span className="block text-[10px] text-slate-500 mt-0.5">Cascading Failure Prediction</span>
             </div>
+          </div>
+
+          {/* Workload Switcher */}
+          <div className="flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-700/80 shrink-0">
+            <button
+              onClick={() => setWorkload && setWorkload('omnistore')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                workload === 'omnistore'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+              }`}
+            >
+              <span>🛍️</span> OmniStore
+            </button>
+            <button
+              onClick={() => setWorkload && setWorkload('moviestream')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                workload === 'moviestream'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+              }`}
+            >
+              <span>🎬</span> MovieStream
+            </button>
           </div>
 
           {/* Main nav */}
@@ -263,10 +289,15 @@ export default function Header({
           <div className="h-5 w-px bg-slate-800" />
 
           {/* Customer app link */}
-          <a href="http://localhost:3000" target="_blank" rel="noreferrer" title="Open Customer App"
-            className="hidden md:flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-300 transition-colors">
+          <a
+            href={workload === 'moviestream' ? 'http://localhost:3002' : 'http://localhost:3000'}
+            target="_blank"
+            rel="noreferrer"
+            title={workload === 'moviestream' ? 'Open MovieStream Frontend (:3002)' : 'Open OmniStore Storefront (:3000)'}
+            className="hidden md:flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200 transition-colors"
+          >
             <ExternalLink size={11} />
-            <span>Customer App</span>
+            <span>{workload === 'moviestream' ? 'MovieStream (:3002)' : 'OmniStore (:3000)'}</span>
           </a>
 
           {/* Fault Lab link */}

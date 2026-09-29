@@ -26,18 +26,39 @@
 const BASE = import.meta.env.VITE_GATEWAY_BASE ?? '/gateway'
 
 // ── Known services in this system ────────────────────────────────────────────
-// Each entry is the service key used in fault routes:
-//   POST /fault/{key}-service/configure
-//   POST /fault/{key}-service/reset
-//   GET  /fault/{key}-service/status
-export const KNOWN_SERVICES = [
-  'order',
-  'payment',
-  'inventory',
-  'shipping',
-  'delivery',
-  'notification',
-]
+export const WORKLOAD_SERVICES = {
+  omnistore: [
+    'order',
+    'payment',
+    'inventory',
+    'shipping',
+    'delivery',
+    'notification',
+  ],
+  moviestream: [
+    'catalog',
+    'user',
+    'watchlist',
+    'history',
+    'recommendation',
+  ],
+}
+
+export const WORKLOAD_PORTS = {
+  order: 8081,
+  payment: 8082,
+  inventory: 8083,
+  shipping: 8084,
+  delivery: 8085,
+  notification: 8086,
+  catalog: 8087,
+  user: 8088,
+  watchlist: 8089,
+  history: 8092,
+  recommendation: 8093,
+}
+
+export const KNOWN_SERVICES = WORKLOAD_SERVICES.omnistore
 
 // ── Fault type definitions ────────────────────────────────────────────────────
 // Matches the backend FaultState.FaultType enum exactly.
@@ -119,6 +140,47 @@ export async function checkGatewayHealth() {
   return { up: s === 'UP', status: s, error: null }
 }
 
+// ── MovieStream fetch helper ──────────────────────────────────────────────────
+async function movieFaultFetch(key, path, options = {}) {
+  const port = WORKLOAD_PORTS[key]
+  const controller = new AbortController()
+  const tid = setTimeout(() => controller.abort(), 6000)
+  try {
+    const res = await fetch(`http://localhost:${port}${path}`, {
+      signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      ...options,
+    })
+    clearTimeout(tid)
+    if (res.ok) {
+      const body = await res.json().catch(() => ({}))
+      return { data: body, error: null, status: res.status }
+    }
+  } catch (err) {
+    clearTimeout(tid)
+  }
+
+  // Fallback to Vite proxy
+  const proxyController = new AbortController()
+  const proxyTid = setTimeout(() => proxyController.abort(), 6000)
+  try {
+    const res = await fetch(`/ms-${key}${path}`, {
+      signal: proxyController.signal,
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      ...options,
+    })
+    clearTimeout(proxyTid)
+    if (res.ok) {
+      const body = await res.json().catch(() => ({}))
+      return { data: body, error: null, status: res.status }
+    }
+    return { data: null, error: `HTTP ${res.status}`, status: res.status }
+  } catch (err) {
+    clearTimeout(proxyTid)
+    return { data: null, error: err.message, status: 0 }
+  }
+}
+
 // ── Fault status ──────────────────────────────────────────────────────────────
 
 /**
@@ -128,6 +190,9 @@ export async function checkGatewayHealth() {
  * Possible fault values from backend: 'NONE' | 'LATENCY' | 'ERROR' | 'DOWN'
  */
 export async function getFaultStatus(key) {
+  if (WORKLOAD_PORTS[key] && WORKLOAD_PORTS[key] >= 8087) {
+    return movieFaultFetch(key, '/fault/status')
+  }
   return gw(`/fault/${key}-service/status`)
 }
 
@@ -141,39 +206,43 @@ export async function getFaultStatus(key) {
  */
 export async function getAllFaultStatuses(keys = KNOWN_SERVICES) {
   const targetKeys = keys && keys.length ? keys : KNOWN_SERVICES
-  const { data, error } = await gw('/fault/status')
-  if (!error && data && typeof data === 'object') {
-    const sMap = {}
-    if (Array.isArray(data.services)) {
-      data.services.forEach(item => {
-        const raw = item.service || ''
-        sMap[raw] = item
-        sMap[raw.replace(/-service$/, '')] = item
-      })
-    }
-    Object.keys(data).forEach(k => {
-      if (k !== 'services') {
-        sMap[k] = data[k]
-        sMap[k.replace(/-service$/, '')] = data[k]
-      }
-    })
+  const hasMovie = targetKeys.some(k => WORKLOAD_PORTS[k] && WORKLOAD_PORTS[k] >= 8087)
 
-    const out = {}
-    for (const k of targetKeys) {
-      const sData = sMap[k] || sMap[`${k}-service`] || {}
-      const f = sData.fault || sData.faultType || 'NONE'
-      out[k] = {
-        service: k,
-        fault: f,
-        delayMs: Number(sData.delayMs || sData.delay_ms || 0),
-        active: Boolean(sData.active || (f && f !== 'NONE')),
-        error: null,
+  if (!hasMovie) {
+    const { data, error } = await gw('/fault/status')
+    if (!error && data && typeof data === 'object') {
+      const sMap = {}
+      if (Array.isArray(data.services)) {
+        data.services.forEach(item => {
+          const raw = item.service || ''
+          sMap[raw] = item
+          sMap[raw.replace(/-service$/, '')] = item
+        })
       }
+      Object.keys(data).forEach(k => {
+        if (k !== 'services') {
+          sMap[k] = data[k]
+          sMap[k.replace(/-service$/, '')] = data[k]
+        }
+      })
+
+      const out = {}
+      for (const k of targetKeys) {
+        const sData = sMap[k] || sMap[`${k}-service`] || {}
+        const f = sData.fault || sData.faultType || 'NONE'
+        out[k] = {
+          service: k,
+          fault: f,
+          delayMs: Number(sData.delayMs || sData.delay_ms || 0),
+          active: Boolean(sData.active || (f && f !== 'NONE')),
+          error: null,
+        }
+      }
+      return out
     }
-    return out
   }
 
-  // Fallback to parallel individual queries
+  // Fallback or MovieStream to parallel individual queries
   const settled = await Promise.allSettled(targetKeys.map(k => getFaultStatus(k)))
   return Object.fromEntries(
     targetKeys.map((k, i) => {
@@ -204,6 +273,13 @@ export async function injectFault(key, faultType, delayMs = 0) {
     delay_ms:  faultType === 'LATENCY' ? delayMs : 0,
   }
 
+  if (WORKLOAD_PORTS[key] && WORKLOAD_PORTS[key] >= 8087) {
+    return movieFaultFetch(key, '/fault/configure', {
+      method: 'POST',
+      body:   JSON.stringify(payload),
+    })
+  }
+
   // Primary: Central API Gateway fault controller
   const res = await gw('/fault/configure', {
     method: 'POST',
@@ -225,6 +301,13 @@ export async function injectFault(key, faultType, delayMs = 0) {
  * @returns { data, error }
  */
 export async function resetFault(key) {
+  if (WORKLOAD_PORTS[key] && WORKLOAD_PORTS[key] >= 8087) {
+    return movieFaultFetch(key, '/fault/reset', {
+      method: 'POST',
+      body:   JSON.stringify({ service: key }),
+    })
+  }
+
   const res = await gw('/fault/reset', {
     method: 'POST',
     body:   JSON.stringify({ service: key }),
@@ -241,12 +324,16 @@ export async function resetFault(key) {
  */
 export async function resetAllFaults(keys = KNOWN_SERVICES) {
   const targetKeys = keys && keys.length ? keys : KNOWN_SERVICES
-  const res = await gw('/fault/reset', {
-    method: 'POST',
-    body:   JSON.stringify({ service: 'ALL' }),
-  })
-  if (!res.error) {
-    return targetKeys.map(k => ({ key: k, ok: true, error: null }))
+  const hasMovie = targetKeys.some(k => WORKLOAD_PORTS[k] && WORKLOAD_PORTS[k] >= 8087)
+
+  if (!hasMovie) {
+    const res = await gw('/fault/reset', {
+      method: 'POST',
+      body:   JSON.stringify({ service: 'ALL' }),
+    })
+    if (!res.error) {
+      return targetKeys.map(k => ({ key: k, ok: true, error: null }))
+    }
   }
 
   const results = []

@@ -14,6 +14,7 @@ import { fetchLiveMetrics, deriveServiceKeys, POLL_MS } from './lib/api'
 const MAX_HISTORY = 120
 
 export default function App() {
+  const [workload,     setWorkload]     = useState('omnistore')
   const [page,         setPage]         = useState('overview')
   const [data,         setData]         = useState(null)
   const [apiStatus,    setApiStatus]    = useState('CHECKING')
@@ -26,9 +27,17 @@ export default function App() {
   // Each entry is a full snapshot with a timestamp so charts can show time labels
   const [metricHistory, setMetricHistory] = useState({})
 
+  const handleWorkloadChange = (nextWorkload) => {
+    if (nextWorkload === workload) return
+    setWorkload(nextWorkload)
+    setRiskHistory([])
+    setMetricHistory({})
+    setData(null)
+  }
+
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const { data: json, error } = await fetchLiveMetrics()
+    const { data: json, error } = await fetchLiveMetrics(workload)
 
     if (json) {
       setData(json)
@@ -72,7 +81,7 @@ export default function App() {
     }
 
     setLoading(false)
-  }, [])
+  }, [workload])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -98,6 +107,8 @@ export default function App() {
         setAutoRefresh={setAutoRefresh}
         riskLevel={riskLevel}
         obsStatus={data?.observability_status ?? {}}
+        workload={workload}
+        setWorkload={handleWorkloadChange}
       />
 
       {/* API offline banner */}
@@ -157,8 +168,9 @@ export default function App() {
 
       <footer className="border-t border-slate-800/60 py-3 text-center text-[11px] text-slate-600">
         Developer Control Center ·
+        Workload: <span className="text-slate-400 font-semibold">{workload === 'moviestream' ? 'MovieStream (Streaming)' : 'OmniStore (E-Commerce)'}</span> ·
         ML API: <code className="text-slate-500">:5001</code> ·
-        Gateway: <code className="text-slate-500">:8080</code> ·
+        Gateway/Services: <code className="text-slate-500">{workload === 'moviestream' ? ':8087-8093' : ':8080'}</code> ·
         Prometheus: <code className="text-slate-500">:9090</code>
       </footer>
 

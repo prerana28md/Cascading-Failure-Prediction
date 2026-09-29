@@ -34,8 +34,8 @@ async function apiFetch(url, options = {}) {
 // ── ML Prediction API ────────────────────────────────────────────────────────
 
 /** Full live pipeline: metrics, prediction, graph, incidents, etc. */
-export async function fetchLiveMetrics() {
-  return apiFetch(`${ML_API}/api/metrics/live`)
+export async function fetchLiveMetrics(workload = 'omnistore') {
+  return apiFetch(`${ML_API}/api/metrics/live?workload=${encodeURIComponent(workload)}`)
 }
 
 /** Clears the rolling incident log (POST /incidents/clear). */
@@ -57,57 +57,86 @@ export async function resolveIncident(id, resolvedBy, note) {
   })
 }
 
-export const KNOWN_SERVICES = ['order', 'payment', 'inventory', 'shipping', 'delivery', 'notification']
+export const WORKLOAD_SERVICES = {
+  omnistore: ['order', 'payment', 'inventory', 'shipping', 'delivery', 'notification'],
+  moviestream: ['catalog', 'user', 'watchlist', 'history', 'recommendation'],
+}
 
-// ── Fault Injection API (via API Gateway) ───────────────────────────────────
+export const WORKLOAD_PORTS = {
+  order: 8081,
+  payment: 8082,
+  inventory: 8083,
+  shipping: 8084,
+  delivery: 8085,
+  notification: 8086,
+  catalog: 8087,
+  user: 8088,
+  watchlist: 8089,
+  history: 8092,
+  recommendation: 8093,
+}
+
+export const KNOWN_SERVICES = WORKLOAD_SERVICES.omnistore
+
+// ── Fault Injection API ─────────────────────────────────────────────────────
 
 /**
  * Fetch fault status for one service.
- * GET /fault/{service}-service/status
- * Returns: { service, fault, delayMs }
+ * Supports both OmniStore (via API Gateway) and MovieStream (direct port / proxy).
  */
 export async function fetchFaultStatus(serviceKey) {
+  if (WORKLOAD_PORTS[serviceKey] && WORKLOAD_PORTS[serviceKey] >= 8087) {
+    const port = WORKLOAD_PORTS[serviceKey]
+    const directRes = await apiFetch(`http://localhost:${port}/fault/status`)
+    if (!directRes.error) return directRes
+    return apiFetch(`/ms-${serviceKey}/fault/status`)
+  }
   return apiFetch(`${GATEWAY}/fault/${serviceKey}-service/status`)
 }
 
 /**
  * Fetch fault status for an array of service keys.
- * Tries central GET /fault/status first, then falls back to parallel individual queries.
- * Returns: { [serviceKey]: { fault, delayMs, active? } | null }
+ * Handles both OmniStore and MovieStream microservices.
  */
 export async function fetchAllFaultStatuses(serviceKeys = KNOWN_SERVICES) {
   const keys = serviceKeys && serviceKeys.length ? serviceKeys : KNOWN_SERVICES
-  const { data, error } = await apiFetch(`${GATEWAY}/fault/status`)
-  if (!error && data && typeof data === 'object') {
-    const sMap = {}
-    if (Array.isArray(data.services)) {
-      data.services.forEach(item => {
-        const raw = item.service || item.name || ''
-        sMap[raw] = item
-        sMap[raw.replace(/-service$/, '')] = item
-      })
-    }
-    Object.keys(data).forEach(k => {
-      if (k !== 'services') {
-        sMap[k] = data[k]
-        sMap[k.replace(/-service$/, '')] = data[k]
-      }
-    })
 
-    const out = {}
-    for (const k of keys) {
-      const sData = sMap[k] || sMap[`${k}-service`] || {}
-      const f = sData.fault || sData.faultType || 'NONE'
-      out[k] = {
-        service: k,
-        fault:   f,
-        delayMs: Number(sData.delayMs || sData.delay_ms || 0),
-        active:  Boolean(sData.active || (f && f !== 'NONE')),
+  // If exclusively OmniStore services, try central /fault/status first
+  const hasMovieService = keys.some(k => WORKLOAD_PORTS[k] && WORKLOAD_PORTS[k] >= 8087)
+  if (!hasMovieService) {
+    const { data, error } = await apiFetch(`${GATEWAY}/fault/status`)
+    if (!error && data && typeof data === 'object') {
+      const sMap = {}
+      if (Array.isArray(data.services)) {
+        data.services.forEach(item => {
+          const raw = item.service || item.name || ''
+          sMap[raw] = item
+          sMap[raw.replace(/-service$/, '')] = item
+        })
       }
+      Object.keys(data).forEach(k => {
+        if (k !== 'services') {
+          sMap[k] = data[k]
+          sMap[k.replace(/-service$/, '')] = data[k]
+        }
+      })
+
+      const out = {}
+      for (const k of keys) {
+        const sData = sMap[k] || sMap[`${k}-service`] || {}
+        const f = sData.fault || sData.faultType || 'NONE'
+        out[k] = {
+          service: k,
+          fault:   f,
+          delayMs: Number(sData.delayMs || sData.delay_ms || 0),
+          active:  Boolean(sData.active || (f && f !== 'NONE')),
+        }
+      }
+      return out
     }
-    return out
   }
 
+  // Fallback or MovieStream: query individually in parallel
   const results = await Promise.allSettled(
     keys.map(k => fetchFaultStatus(k))
   )
@@ -121,8 +150,6 @@ export async function fetchAllFaultStatuses(serviceKeys = KNOWN_SERVICES) {
 
 /**
  * Inject a fault into a service.
- * POST /fault/configure (fallback: /fault/{service}-service/configure)
- * body: { service, fault, faultType, delayMs, delay_ms }
  */
 export async function injectFault(serviceKey, fault, delayMs = 0) {
   const payload = {
@@ -133,6 +160,23 @@ export async function injectFault(serviceKey, fault, delayMs = 0) {
     delay_ms:  fault === 'LATENCY' ? delayMs : 0,
   }
 
+  // MovieStream service
+  if (WORKLOAD_PORTS[serviceKey] && WORKLOAD_PORTS[serviceKey] >= 8087) {
+    const port = WORKLOAD_PORTS[serviceKey]
+    const directRes = await apiFetch(`http://localhost:${port}/fault/configure`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload),
+    })
+    if (!directRes.error) return directRes
+    return apiFetch(`/ms-${serviceKey}/fault/configure`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload),
+    })
+  }
+
+  // OmniStore service
   const res = await apiFetch(`${GATEWAY}/fault/configure`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -149,9 +193,25 @@ export async function injectFault(serviceKey, fault, delayMs = 0) {
 
 /**
  * Reset (clear) fault on a service.
- * POST /fault/reset (fallback: /fault/{service}-service/reset)
  */
 export async function resetFault(serviceKey) {
+  // MovieStream service
+  if (WORKLOAD_PORTS[serviceKey] && WORKLOAD_PORTS[serviceKey] >= 8087) {
+    const port = WORKLOAD_PORTS[serviceKey]
+    const directRes = await apiFetch(`http://localhost:${port}/fault/reset`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ service: serviceKey }),
+    })
+    if (!directRes.error) return directRes
+    return apiFetch(`/ms-${serviceKey}/fault/reset`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ service: serviceKey }),
+    })
+  }
+
+  // OmniStore service
   const res = await apiFetch(`${GATEWAY}/fault/reset`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -164,18 +224,20 @@ export async function resetFault(serviceKey) {
 
 /**
  * Reset faults on all given service keys.
- * Uses atomic /fault/reset with service: 'ALL', falling back to sequential reset.
- * Returns array of { serviceKey, ok, error }
  */
 export async function resetAllFaults(serviceKeys = KNOWN_SERVICES) {
   const keys = serviceKeys && serviceKeys.length ? serviceKeys : KNOWN_SERVICES
-  const res = await apiFetch(`${GATEWAY}/fault/reset`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ service: 'ALL' }),
-  })
-  if (!res.error) {
-    return keys.map(k => ({ serviceKey: k, ok: true }))
+  const hasMovieService = keys.some(k => WORKLOAD_PORTS[k] && WORKLOAD_PORTS[k] >= 8087)
+
+  if (!hasMovieService) {
+    const res = await apiFetch(`${GATEWAY}/fault/reset`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ service: 'ALL' }),
+    })
+    if (!res.error) {
+      return keys.map(k => ({ serviceKey: k, ok: true }))
+    }
   }
 
   const out = []

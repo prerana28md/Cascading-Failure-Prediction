@@ -53,36 +53,61 @@ GRAFANA_URL    = os.getenv("GRAFANA_URL",    "http://localhost:3001")
 JAEGER_URL     = os.getenv("JAEGER_URL",     "http://localhost:16686")
 MODEL_DIR      = os.getenv("MODEL_DIR", os.path.join(os.path.dirname(__file__), "model"))
 
-SERVICES = ["order", "payment", "inventory", "shipping", "delivery", "notification"]
+WORKLOAD_SERVICES = {
+    "omnistore":   ["order", "payment", "inventory", "shipping", "delivery", "notification"],
+    "moviestream": ["catalog", "user", "watchlist", "history", "recommendation"]
+}
+
+SERVICES = WORKLOAD_SERVICES["omnistore"]
+ALL_SERVICES = WORKLOAD_SERVICES["omnistore"] + WORKLOAD_SERVICES["moviestream"]
 
 # Direct service ports — used for fault-aware health probing
-# The ML API bypasses the gateway and hits each service directly so it can
-# detect DOWN/ERROR/LATENCY faults that Prometheus's scrape target doesn't expose.
 SERVICE_PORTS = {
-    "order":        8081,
-    "payment":      8082,
-    "inventory":    8083,
-    "shipping":     8084,
-    "delivery":     8085,
-    "notification": 8086,
+    "order":          8081,
+    "payment":        8082,
+    "inventory":      8083,
+    "shipping":       8084,
+    "delivery":       8085,
+    "notification":   8086,
+    "catalog":        8087,
+    "user":           8088,
+    "watchlist":      8089,
+    "history":        8092,
+    "recommendation": 8093,
 }
 
 SERVICE_LABELS = {
-    "order":        "Order Service",
-    "payment":      "Payment Service",
-    "inventory":    "Inventory Service",
-    "shipping":     "Shipping Service",
-    "delivery":     "Delivery Service",
-    "notification": "Notification Service",
+    "order":          "Order Service",
+    "payment":        "Payment Service",
+    "inventory":      "Inventory Service",
+    "shipping":       "Shipping Service",
+    "delivery":       "Delivery Service",
+    "notification":   "Notification Service",
+    "catalog":        "Catalog Service",
+    "user":           "User Service",
+    "watchlist":      "Watchlist Service",
+    "history":        "History Service",
+    "recommendation": "Recommendation Service",
 }
 
-# Architectural dependency edges
-ARCH_EDGES = [
-    ("order", "inventory"), ("order", "payment"),
-    ("order", "shipping"),  ("order", "notification"),
-    ("shipping", "delivery"), ("shipping", "notification"),
-    ("payment", "notification"),
-]
+# Architectural dependency edges per workload
+ARCH_EDGES_BY_WORKLOAD = {
+    "omnistore": [
+        ("order", "inventory"), ("order", "payment"),
+        ("order", "shipping"),  ("order", "notification"),
+        ("shipping", "delivery"), ("shipping", "notification"),
+        ("payment", "notification"),
+    ],
+    "moviestream": [
+        ("recommendation", "catalog"),
+        ("recommendation", "history"),
+        ("recommendation", "user"),
+        ("watchlist", "user"),
+        ("history", "user"),
+    ]
+}
+
+ARCH_EDGES = ARCH_EDGES_BY_WORKLOAD["omnistore"]
 
 # Healthy baselines for Z-score computation
 BASELINE = {
@@ -94,15 +119,23 @@ BASELINE = {
 
 # SLA targets per service (uptime %, max p99 latency, max error rate)
 SLA_TARGETS = {
-    "order":        {"uptime_pct": 99.9, "max_p99_s": 0.5,  "max_error_rate": 0.01},
-    "payment":      {"uptime_pct": 99.9, "max_p99_s": 0.8,  "max_error_rate": 0.005},
-    "inventory":    {"uptime_pct": 99.5, "max_p99_s": 0.3,  "max_error_rate": 0.01},
-    "shipping":     {"uptime_pct": 99.5, "max_p99_s": 1.0,  "max_error_rate": 0.02},
-    "delivery":     {"uptime_pct": 99.0, "max_p99_s": 1.0,  "max_error_rate": 0.02},
-    "notification": {"uptime_pct": 99.0, "max_p99_s": 0.5,  "max_error_rate": 0.02},
+    "order":          {"uptime_pct": 99.9, "max_p99_s": 0.5,  "max_error_rate": 0.01},
+    "payment":        {"uptime_pct": 99.9, "max_p99_s": 0.8,  "max_error_rate": 0.005},
+    "inventory":      {"uptime_pct": 99.5, "max_p99_s": 0.3,  "max_error_rate": 0.01},
+    "shipping":       {"uptime_pct": 99.5, "max_p99_s": 1.0,  "max_error_rate": 0.02},
+    "delivery":       {"uptime_pct": 99.0, "max_p99_s": 1.0,  "max_error_rate": 0.02},
+    "notification":   {"uptime_pct": 99.0, "max_p99_s": 0.5,  "max_error_rate": 0.02},
+    "catalog":        {"uptime_pct": 99.5, "max_p99_s": 0.5,  "max_error_rate": 0.01},
+    "recommendation": {"uptime_pct": 99.5, "max_p99_s": 0.6,  "max_error_rate": 0.01},
+    "user":           {"uptime_pct": 99.9, "max_p99_s": 0.3,  "max_error_rate": 0.005},
+    "watchlist":      {"uptime_pct": 99.0, "max_p99_s": 0.4,  "max_error_rate": 0.02},
+    "history":        {"uptime_pct": 99.0, "max_p99_s": 0.4,  "max_error_rate": 0.02},
 }
 
-HISTORY        = deque(maxlen=30)   # keep 30 polls (~4 min at 8s interval)
+HISTORY        = {
+    "omnistore": deque(maxlen=30),
+    "moviestream": deque(maxlen=30),
+}   # keep 30 polls (~4 min at 8s interval) per workload
 INCIDENT_LOG   = deque(maxlen=200)  # rolling incident feed (persisted to disk)
 
 # Path to persist incident log across restarts
@@ -191,20 +224,26 @@ def _load_model():
         print("[WARN] No trained model found. Rule-based fallback active.")
 
 
-def predict_cascade(raw: dict) -> dict:
+def predict_cascade(raw: dict, workload: str = "omnistore") -> dict:
     """
-    Feeds the 71 Prometheus-engineered features into the trained RandomForestClassifier.
+    Feeds the 71 Prometheus-engineered features into the trained RandomForestClassifier for OmniStore,
+    or utilizes topology rule-based cascade prediction engine for MovieStream.
     Returns prediction ("CASCADE_FAILURE" or "NORMAL"), cascade_risk (float 0.0 - 1.0),
     confidence (float), and risk_level ("LOW", "MEDIUM", "HIGH", "CRITICAL").
     """
-    if _model is None or _scaler is None or _features is None:
-        rl, cr = rule_based_risk(raw)
+    services = WORKLOAD_SERVICES.get(workload, SERVICES)
+    if workload != "omnistore" or _model is None or _scaler is None or _features is None:
+        rl, cr = rule_based_risk(raw, workload=workload)
+        system_max_err = float(raw.get("system_max_error_rate", max([raw.get(f"{s}_error_rate_5xx", 0.0) for s in services])))
+        system_mean_err = float(raw.get("system_mean_error_rate", 0.0))
+        down_count = int(raw.get("num_services_down", 0))
+        prediction = "CASCADE_FAILURE" if (cr >= 0.5 and (system_max_err >= 0.08 or down_count >= 1)) else "NORMAL"
         return {
-            "prediction": "CASCADE_FAILURE" if cr >= 0.5 else "NORMAL",
+            "prediction": prediction,
             "cascade_risk": cr,
             "confidence": round(max(cr, 1.0 - cr), 4),
             "risk_level": rl,
-            "model_note": "Rule-based fallback (model not loaded)",
+            "model_note": f"Rule-based cascade engine ({workload})" if workload != "omnistore" else "Rule-based fallback (model not loaded)",
         }
 
     # Construct feature vector in exact order of _features
@@ -226,7 +265,7 @@ def predict_cascade(raw: dict) -> dict:
         cascade_risk = 1.0 if pred == 1 else 0.0
         confidence = 1.0
 
-    system_max_err = float(raw.get("system_max_error_rate", max([raw.get(f"{s}_error_rate_5xx", 0.0) for s in SERVICES])))
+    system_max_err = float(raw.get("system_max_error_rate", max([raw.get(f"{s}_error_rate_5xx", 0.0) for s in services])))
     system_mean_err = float(raw.get("system_mean_error_rate", 0.0))
     down_count = int(raw.get("num_services_down", 0))
 
@@ -297,52 +336,49 @@ def _is_prometheus_up() -> bool:
 # ── Direct fault-aware service probe ─────────────────────────────────────────
 # Probe the API Gateway fault status to track active injection metadata.
 # Real traffic and actuator metrics in Prometheus reflect the actual fault impacts.
-def _probe_service_faults() -> dict:
+def _probe_service_faults(services=None) -> dict:
     """
-    Queries fault status via gateway GET /fault/status or individual /fault/{svc}-service/status.
+    Queries fault status via direct microservice status endpoint or gateway GET /fault/status.
     Returns { svc: {"fault": "NONE"|"LATENCY"|"ERROR"|"DOWN", "delayMs": int} }
     """
+    if services is None:
+        services = SERVICES
     import requests as req
     gateway = os.getenv("GATEWAY_URL", "http://localhost:8080")
     result  = {}
-    try:
-        r = req.get(f"{gateway}/fault/status", timeout=1.5)
-        if r.status_code == 200:
-            data = r.json()
-            s_map = {}
-            if isinstance(data.get("services"), list):
-                for item in data.get("services"):
-                    raw = str(item.get("service") or item.get("name") or "")
-                    s_map[raw] = item
-                    s_map[raw.replace("-service", "")] = item
-            for k, v in data.items():
-                if k != "services" and isinstance(v, dict):
-                    s_map[k] = v
-                    s_map[k.replace("-service", "")] = v
 
-            for svc in SERVICES:
-                svc_data = s_map.get(svc) or s_map.get(f"{svc}-service") or {}
-                result[svc] = {
-                    "fault":   str(svc_data.get("fault", svc_data.get("faultType", "NONE"))).upper(),
-                    "delayMs": int(svc_data.get("delayMs", svc_data.get("delay_ms", 0)) or 0),
-                }
-            return result
-    except Exception:
-        pass
+    for svc in services:
+        port = SERVICE_PORTS.get(svc)
+        probed = False
+        if port:
+            try:
+                r = req.get(f"http://localhost:{port}/fault/status", timeout=0.3)
+                if r.status_code == 200:
+                    data = r.json()
+                    result[svc] = {
+                        "fault":   str(data.get("fault", data.get("faultType", "NONE"))).upper(),
+                        "delayMs": int(data.get("delayMs", data.get("delay_ms", 0)) or 0),
+                        "probed":  True,
+                    }
+                    probed = True
+            except Exception:
+                pass
 
-    for svc in SERVICES:
-        try:
-            r = req.get(f"{gateway}/fault/{svc}-service/status", timeout=1.0)
-            if r.status_code == 200:
-                data = r.json()
-                result[svc] = {
-                    "fault":   str(data.get("fault", data.get("faultType", "NONE"))).upper(),
-                    "delayMs": int(data.get("delayMs", data.get("delay_ms", 0)) or 0),
-                }
-            else:
-                result[svc] = {"fault": "NONE", "delayMs": 0}
-        except Exception:
-            result[svc] = {"fault": "NONE", "delayMs": 0}
+        if not probed:
+            try:
+                r = req.get(f"{gateway}/fault/{svc}-service/status", timeout=0.5)
+                if r.status_code == 200:
+                    data = r.json()
+                    result[svc] = {
+                        "fault":   str(data.get("fault", data.get("faultType", "NONE"))).upper(),
+                        "delayMs": int(data.get("delayMs", data.get("delay_ms", 0)) or 0),
+                        "probed":  True,
+                    }
+                else:
+                    result[svc] = {"fault": "NONE", "delayMs": 0, "probed": False}
+            except Exception:
+                result[svc] = {"fault": "NONE", "delayMs": 0, "probed": False}
+
     return result
 
 
@@ -363,8 +399,9 @@ def _prom(query):
         return 0.0
 
 
-def scrape() -> dict:
+def scrape(workload="omnistore") -> dict:
     # 1m window rates and histogram quantiles for real-time responsiveness
+    services = WORKLOAD_SERVICES.get(workload, SERVICES)
     queries = {
         "request_rate":   'sum(rate(http_server_requests_seconds_count{{application="{s}-service"}}[1m]))',
         "error_rate_5xx": 'sum(rate(http_server_requests_seconds_count{{application="{s}-service",status=~"5.."}}[1m]))',
@@ -381,20 +418,17 @@ def scrape() -> dict:
 
     if not prom_up:
         # Prometheus unreachable — mark all services up with zero metrics
-        for svc in SERVICES:
+        for svc in services:
             for k in queries:
                 raw[f"{svc}_{k}"] = 1.0 if k == "service_up" else 0.0
     else:
-        for svc in SERVICES:
+        for svc in services:
             for k, q in queries.items():
                 raw[f"{svc}_{k}"] = _prom(q.format(s=svc))
 
     # ── Fault-aware metadata & controlled DOWN detection ──────────────────────
-    # Real metrics come directly from Prometheus above.
-    # We record fault metadata, and if a service is in controlled DOWN state (503),
-    # we reflect service_up = 0.0.
     try:
-        fault_states = _probe_service_faults()
+        fault_states = _probe_service_faults(services)
         for svc, fs in fault_states.items():
             fault = fs.get("fault", "NONE")
             delay = fs.get("delayMs", 0)
@@ -403,12 +437,16 @@ def scrape() -> dict:
 
             if fault == "DOWN":
                 raw[f"{svc}_service_up"] = 0.0
+            elif fs.get("probed", False):
+                raw[f"{svc}_service_up"] = 1.0
+            elif not fs.get("probed", False) and workload == "moviestream":
+                raw[f"{svc}_service_up"] = 0.0
 
     except Exception as e:
         print(f"[WARN] Fault-aware probe failed: {e}")
 
-    # Ensure defaults and compute per-service derived features for the 71-feature model
-    for svc in SERVICES:
+    # Ensure defaults and compute per-service derived features
+    for svc in services:
         raw.setdefault(f"{svc}_fault", "NONE")
         raw.setdefault(f"{svc}_fault_delay_ms", 0)
         req_rate = float(raw.get(f"{svc}_request_rate", 0.0))
@@ -419,27 +457,27 @@ def scrape() -> dict:
         raw[f"{svc}_latency_spike"] = float(p99 / (p50 + 1e-9))
 
     # ── System-level aggregates ────────────────────────────────────────────────
-    err_vals = [raw.get(f"{s}_error_rate_5xx", 0.0) for s in SERVICES]
-    p99_vals = [raw.get(f"{s}_p99_latency_s",  0.0) for s in SERVICES]
-    up_vals  = [raw.get(f"{s}_service_up",      1.0) for s in SERVICES]
+    err_vals = [raw.get(f"{s}_error_rate_5xx", 0.0) for s in services]
+    p99_vals = [raw.get(f"{s}_p99_latency_s",  0.0) for s in services]
+    up_vals  = [raw.get(f"{s}_service_up",      1.0) for s in services]
 
-    raw["system_mean_error_rate"]  = float(np.mean(err_vals))
-    raw["system_max_error_rate"]   = float(max(err_vals))
-    raw["system_max_p99_latency"]  = float(max(p99_vals))
-    raw["system_mean_p99_latency"] = float(np.mean(p99_vals))
+    raw["system_mean_error_rate"]  = float(np.mean(err_vals)) if err_vals else 0.0
+    raw["system_max_error_rate"]   = float(max(err_vals)) if err_vals else 0.0
+    raw["system_max_p99_latency"]  = float(max(p99_vals)) if p99_vals else 0.0
+    raw["system_mean_p99_latency"] = float(np.mean(p99_vals)) if p99_vals else 0.0
     raw["num_services_down"]       = int(sum(1 for v in up_vals if v == 0))
     raw["prometheus_connected"]    = prom_up
     return raw
-
-
+    
 # ── Analysis engines ──────────────────────────────────────────────────────────
 
-def zscore_analysis(raw: dict) -> dict:
+def zscore_analysis(raw: dict, workload: str = "omnistore") -> dict:
+    services = WORKLOAD_SERVICES.get(workload, SERVICES)
     svc_z    = {}
     flagged  = []
     max_z    = 0.0
     threshold = 3.0
-    for svc in SERVICES:
+    for svc in services:
         z_map = {}
         for metric, base in BASELINE.items():
             val = float(raw.get(f"{svc}_{metric}", 0.0))
@@ -466,10 +504,12 @@ def zscore_analysis(raw: dict) -> dict:
     }
 
 
-def temporal_analysis(raw: dict) -> dict:
+def temporal_analysis(raw: dict, workload: str = "omnistore") -> dict:
+    services = WORKLOAD_SERVICES.get(workload, SERVICES)
     now = time.time()
-    HISTORY.append({"t": now, "raw": raw})
-    if len(HISTORY) < 2:
+    hist = HISTORY.setdefault(workload, deque(maxlen=30))
+    hist.append({"t": now, "raw": raw})
+    if len(hist) < 2:
         return {
             "delta_error_rate":     0.0,
             "delta_latency":        0.0,
@@ -479,27 +519,27 @@ def temporal_analysis(raw: dict) -> dict:
             "propagation_onset":    [],
             "history_length":       1,
         }
-    curr = HISTORY[-1]["raw"]
-    prev = HISTORY[-2]["raw"]
-    dt   = max(1.0, now - HISTORY[-2]["t"])
+    curr = hist[-1]["raw"]
+    prev = hist[-2]["raw"]
+    dt   = max(1.0, now - hist[-2]["t"])
 
     d_err = (curr.get("system_mean_error_rate", 0) - prev.get("system_mean_error_rate", 0)) / dt
     d_lat = (curr.get("system_max_p99_latency", 0) - prev.get("system_max_p99_latency", 0)) / dt
 
-    recent    = [h["raw"].get("system_mean_error_rate", 0) for h in list(HISTORY)[-3:]]
+    recent    = [h["raw"].get("system_mean_error_rate", 0) for h in list(hist)[-3:]]
     roll_mean = float(np.mean(recent))
     roll_std  = float(np.std(recent))
 
     accel = 0.0
-    if len(HISTORY) >= 3:
-        dt2    = max(1.0, HISTORY[-2]["t"] - HISTORY[-3]["t"])
-        d_err2 = (prev.get("system_mean_error_rate", 0) - HISTORY[-3]["raw"].get("system_mean_error_rate", 0)) / dt2
+    if len(hist) >= 3:
+        dt2    = max(1.0, hist[-2]["t"] - hist[-3]["t"])
+        d_err2 = (prev.get("system_mean_error_rate", 0) - hist[-3]["raw"].get("system_mean_error_rate", 0)) / dt2
         accel  = (d_err - d_err2) / dt
 
     onset = []
     seen  = set()
-    for h in HISTORY:
-        for svc in SERVICES:
+    for h in hist:
+        for svc in services:
             if svc in seen:
                 continue
             if (h["raw"].get(f"{svc}_service_up", 1) == 0
@@ -515,16 +555,17 @@ def temporal_analysis(raw: dict) -> dict:
         "rolling_3_std_error":  round(roll_std, 4),
         "acceleration_error":   round(float(accel), 4),
         "propagation_onset":    onset,
-        "history_length":       len(HISTORY),
+        "history_length":       len(hist),
     }
 
 
-def sla_compliance(raw: dict) -> dict:
+def sla_compliance(raw: dict, workload: str = "omnistore") -> dict:
     """Compute SLA compliance status for each service."""
+    services = WORKLOAD_SERVICES.get(workload, SERVICES)
     results = {}
     overall_breaches = 0
-    for svc in SERVICES:
-        targets = SLA_TARGETS[svc]
+    for svc in services:
+        targets = SLA_TARGETS.get(svc, {"uptime_pct": 99.0, "max_p99_s": 0.5, "max_error_rate": 0.01})
         up      = float(raw.get(f"{svc}_service_up",      1.0))
         err     = float(raw.get(f"{svc}_error_rate_5xx",  0.0))
         p99     = float(raw.get(f"{svc}_p99_latency_s",   0.0))
@@ -540,8 +581,9 @@ def sla_compliance(raw: dict) -> dict:
         lat_budget_pct = min(100.0, round((p99 / max(max_p99, 1e-6)) * 100, 1))
 
         breaches = []
+        svc_label = SERVICE_LABELS.get(svc, svc)
         if up == 0:
-            breaches.append({"type": "DOWNTIME",      "message": f"{SERVICE_LABELS[svc]} is DOWN (SLA target: {targets['uptime_pct']}% uptime)"})
+            breaches.append({"type": "DOWNTIME",      "message": f"{svc_label} is DOWN (SLA target: {targets['uptime_pct']}% uptime)"})
         if err > max_err and req_rt > 0:
             breaches.append({"type": "ERROR_BUDGET",  "message": f"Error rate {err:.4f}/s exceeds SLA limit of {max_err}/s ({err_budget_pct}% budget consumed)"})
         if p99 > max_p99:
@@ -561,11 +603,13 @@ def sla_compliance(raw: dict) -> dict:
     return {"services": results, "total_breaches": overall_breaches, "compliant_count": sum(1 for v in results.values() if v["sla_compliant"])}
 
 
-def dependency_graph(raw: dict, root_causes: list) -> dict:
+def dependency_graph(raw: dict, root_causes: list, workload: str = "omnistore") -> dict:
+    services = WORKLOAD_SERVICES.get(workload, SERVICES)
+    arch_edges = ARCH_EDGES_BY_WORKLOAD.get(workload, ARCH_EDGES_BY_WORKLOAD["omnistore"])
     G        = nx.DiGraph()
     root_set = {c["service"] for c in root_causes}
 
-    for svc in SERVICES:
+    for svc in services:
         err = float(raw.get(f"{svc}_error_rate_5xx", 0))
         p99 = float(raw.get(f"{svc}_p99_latency_s",  0))
         up  = float(raw.get(f"{svc}_service_up",      1))
@@ -577,11 +621,11 @@ def dependency_graph(raw: dict, root_causes: list) -> dict:
             status = "NORMAL"
         G.add_node(svc, label=SERVICE_LABELS.get(svc, svc), status=status, err=err, p99=p99, up=up)
 
-    for src, dst in ARCH_EDGES:
+    for src, dst in arch_edges:
         G.add_edge(src, dst, type="architectural", weight=1.0, correlation=0.85)
 
-    for i, s1 in enumerate(SERVICES):
-        for s2 in SERVICES[i+1:]:
+    for i, s1 in enumerate(services):
+        for s2 in services[i+1:]:
             err1  = float(raw.get(f"{s1}_error_rate_5xx", 0))
             err2  = float(raw.get(f"{s2}_error_rate_5xx", 0))
             p99_1 = float(raw.get(f"{s1}_p99_latency_s",  0))
@@ -608,12 +652,12 @@ def dependency_graph(raw: dict, root_causes: list) -> dict:
     try:
         pr = nx.pagerank(G, weight="weight")
     except Exception:
-        pr = {s: round(1.0 / len(SERVICES), 4) for s in SERVICES}
+        pr = {s: round(1.0 / len(services), 4) for s in services}
 
     try:
         bc = nx.betweenness_centrality(G, weight="weight")
     except Exception:
-        bc = {s: 0.0 for s in SERVICES}
+        bc = {s: 0.0 for s in services}
 
     nodes = []
     for n, d in G.nodes(data=True):
@@ -682,9 +726,10 @@ def feature_importances() -> list:
     return [{"feature": _features[i], "importance": round(float(imps[i]), 4)} for i in top]
 
 
-def root_cause(raw: dict) -> list:
+def root_cause(raw: dict, workload: str = "omnistore") -> list:
+    services = WORKLOAD_SERVICES.get(workload, SERVICES)
     causes = []
-    for svc in SERVICES:
+    for svc in services:
         err = float(raw.get(f"{svc}_error_rate_5xx", 0))
         p99 = float(raw.get(f"{svc}_p99_latency_s",  0))
         up  = float(raw.get(f"{svc}_service_up",      1))
@@ -840,11 +885,12 @@ def structured_recommendations(causes: list, raw: dict, risk_level: str, sla: di
     return recs
 
 
-def _append_incident(raw: dict, causes: list, risk_level: str):
+def _append_incident(raw: dict, causes: list, risk_level: str, workload: str = "omnistore"):
     """Append anomalies to the rolling incident log. Deduplicates consecutive identical events.
     Auto-resolves services that were previously incident-active but now have no cause.
     Uses appendleft so index-0 is always the most recent entry.
     """
+    services = WORKLOAD_SERVICES.get(workload, SERVICES)
     now = time.localtime()
     ts  = time.strftime("%Y-%m-%d %H:%M:%S", now)
     day = time.strftime("%Y-%m-%d", now)
@@ -872,13 +918,14 @@ def _append_incident(raw: dict, causes: list, risk_level: str):
             "value":      c.get("value"),
             "metric":     c.get("metric"),
             "risk_level": risk_level,
+            "workload":   workload,
             "id":         int(time.time() * 1000),
         })
 
     # ── Auto-resolve ──────────────────────────────────────────────────────────
     # For every service that has a non-RESOLVED entry as its LATEST log entry,
     # but is NOT in the current cause set → append a RESOLVED entry.
-    for svc in SERVICES:
+    for svc in services:
         if svc in cause_svcs:
             continue   # still has an active cause — do not resolve
 
@@ -896,14 +943,15 @@ def _append_incident(raw: dict, causes: list, risk_level: str):
                 "value":      None,
                 "metric":     None,
                 "risk_level": "LOW",
-                "id":         int(time.time() * 1000) + SERVICES.index(svc),
+                "workload":   workload,
+                "id":         int(time.time() * 1000) + (services.index(svc) if svc in services else 0),
             })
 
     _save_incident_log()
 
 
-def rule_based_risk(raw: dict) -> tuple:
-    impact = impact_analysis(raw)
+def rule_based_risk(raw: dict, workload: str = "omnistore") -> tuple:
+    impact = impact_analysis(raw, workload=workload)
     risk = impact["affected_percentage"] / 100.0
     if risk >= 0.75:
         return "CRITICAL", round(risk, 4)
@@ -914,16 +962,17 @@ def rule_based_risk(raw: dict) -> tuple:
     return "LOW", round(risk, 4)
 
 
-def impact_analysis(raw: dict) -> dict:
+def impact_analysis(raw: dict, workload: str = "omnistore") -> dict:
     """Calculate impact from the observed service state with graduated thresholds."""
+    services = WORKLOAD_SERVICES.get(workload, SERVICES)
     impacts = {}
-    for svc in SERVICES:
+    for svc in services:
         fault = str(raw.get(f"{svc}_fault", "NONE")).upper()
         up = float(raw.get(f"{svc}_service_up", 1.0))
         err = float(raw.get(f"{svc}_error_rate_5xx", 0.0))
         p99 = float(raw.get(f"{svc}_p99_latency_s", 0.0))
         delay = float(raw.get(f"{svc}_fault_delay_ms", 0.0)) / 1000.0
-        target = SLA_TARGETS[svc]
+        target = SLA_TARGETS.get(svc, {"max_error_rate": 0.01, "max_p99_s": 0.5})
 
         # Graduated error impact:
         # err <= max_error_rate: 0.0%
@@ -993,13 +1042,15 @@ def _active_fault_events():
     return [event for event in latest.values() if event.get("status") in ("ACTIVE", "INJECTED")]
 
 
-def criticality_analysis(raw: dict, impact: dict) -> dict:
+def criticality_analysis(raw: dict, impact: dict, workload: str = "omnistore") -> dict:
     """Return a deterministic, explainable system criticality score."""
+    services = WORKLOAD_SERVICES.get(workload, SERVICES)
+    arch_edges = ARCH_EDGES_BY_WORKLOAD.get(workload, ARCH_EDGES_BY_WORKLOAD["omnistore"])
     active_events = _active_fault_events()
-    active_services = {event.get("service") for event in active_events}
+    active_services = {event.get("service") for event in active_events if event.get("service") in services}
     current_faults = {
         svc: str(raw.get(f"{svc}_fault", "NONE")).upper()
-        for svc in SERVICES
+        for svc in services
     }
     active_services.update(svc for svc, fault in current_faults.items() if fault != "NONE")
 
@@ -1019,7 +1070,7 @@ def criticality_analysis(raw: dict, impact: dict) -> dict:
     now = _utc_now()
     recent_window = [
         event for event in FAULT_EVENTS
-        if event.get("status") in ("ACTIVE", "INJECTED") and (now - _parse_timestamp(event.get("timestamp"))).total_seconds() <= 600
+        if event.get("status") in ("ACTIVE", "INJECTED") and (now - _parse_timestamp(event.get("timestamp"))).total_seconds() <= 600 and event.get("service") in services
     ]
 
     for svc in active_services:
@@ -1044,8 +1095,8 @@ def criticality_analysis(raw: dict, impact: dict) -> dict:
             reasons.append(f"{svc} impact is {service_impact:.1f}% from its observed fault and metrics")
 
     affected = set(svc for svc, value in impact["services"].items() if value > 0)
-    dependency_targets = {dst for src, dst in ARCH_EDGES if src in active_services}
-    dependency_score = min(100.0, (len(affected & dependency_targets) / max(1, len(SERVICES))) * 100.0)
+    dependency_targets = {dst for src, dst in arch_edges if src in active_services}
+    dependency_score = min(100.0, (len(affected & dependency_targets) / max(1, len(services))) * 100.0)
     if dependency_targets & affected:
         reasons.append(f"{len(dependency_targets & affected)} dependent service(s) are also affected")
     if len(active_services) > 1:
@@ -1073,7 +1124,6 @@ def criticality_analysis(raw: dict, impact: dict) -> dict:
         severity = "LOW"
     else:
         severity = "INFORMATIONAL"
-
     return {"percentage": percentage, "severity": severity, "reasons": reasons, "components": components}
 
 
@@ -1444,11 +1494,295 @@ SERVICE_DIAGNOSTICS = {
             "priority": "P3",
         },
     },
+    "catalog": {
+        "label": "Catalog Service",
+        "port": 8087,
+        "down": {
+            "title": "Catalog Service Outage (:8087) — Movie Discovery & Billboard Offline",
+            "what_is_happening": "Catalog Service (:8087) is completely DOWN (service_up=0, HTTP 503). TMDB metadata queries and movie catalog endpoints are unreachable.",
+            "cause": "Injected service outage or microservice process stoppage. Recommendation Service (:8093) cannot fetch trending titles, causing cascading degradation.",
+            "measures": [
+                "Restart the Catalog Service process on port 8087",
+                "Verify Catalog Service health: curl -s http://localhost:8087/health",
+                "Reset active fault in Fault Lab (:4001) or via POST http://localhost:8087/fault/reset",
+                "Verify TMDB API connectivity and rate limits",
+            ],
+            "why": "Catalog Service (:8087) is completely down. Video metadata, billboard banners, and category rows are unavailable across the streaming platform.",
+            "action": "curl -s http://localhost:8087/health",
+            "command": "curl -s http://localhost:8087/health",
+            "priority": "P1",
+        },
+        "high_error": {
+            "title": "Catalog Query Exception Spike on :8087 ({err_pct}%)",
+            "what_is_happening": "Catalog Service is generating HTTP 5xx responses on {err_pct}% of metadata requests.",
+            "cause": "TMDB upstream gateway errors or local movie cache serialization failure.",
+            "measures": [
+                "Inspect Catalog Service terminal logs for uncaught exceptions",
+                "Verify TMDB API key validity and network egress",
+                "Check Recommendation Service circuit breaker fallback handling",
+            ],
+            "why": "Catalog Service is failing metadata requests with HTTP 500 errors. Downstream recommendation assembly fails.",
+            "action": "curl -s http://localhost:8087/health",
+            "command": "curl -s http://localhost:8087/health",
+            "priority": "P1",
+        },
+        "low_error": {
+            "title": "Catalog Transient Metadata Fluctuation ({err_pct}%)",
+            "what_is_happening": "Minor intermittent errors detected on Catalog Service ({err_pct}%). Core movie playback and browsing operational.",
+            "cause": "Sporadic external TMDB API rate-limit or transient network timeout.",
+            "measures": [
+                "Monitor error rate burn down; local catalog cache serves fallback metadata",
+                "Inspect recent catalog logs for rate-limit warnings",
+            ],
+            "why": "Catalog error rate is only {err_pct}%. Core streaming platform operational.",
+            "action": "curl -s http://localhost:8087/health",
+            "command": "curl -s http://localhost:8087/health",
+            "priority": "P3",
+        },
+        "latency": {
+            "title": "Catalog Metadata Latency Spike — P99 {p99_s}s",
+            "what_is_happening": "Catalog Service P99 latency ({p99_s}s) exceeds the 0.500s SLA budget. Injected delay or slow external TMDB upstream active.",
+            "cause": "Slow movie catalog responses cause synchronous worker threads in Recommendation Service (:8093) to stall, triggering cascading latency.",
+            "measures": [
+                "Inspect active artificial latency in Fault Lab (:4001) and reset if needed",
+                "Verify local TMDB cache TTL settings",
+                "Check Recommendation Service timeout threshold (recommended 1000ms max with cache fallback)",
+                "Reset latency fault: POST http://localhost:8087/fault/reset",
+            ],
+            "why": "Catalog P99 latency ({p99_s}s) exceeds 0.500s SLA. Cascades to Recommendation Service.",
+            "action": "curl -s -X POST http://localhost:8087/fault/reset",
+            "command": "curl -s -X POST http://localhost:8087/fault/reset",
+            "priority": "P2",
+        },
+    },
+    "recommendation": {
+        "label": "Recommendation Service",
+        "port": 8093,
+        "down": {
+            "title": "Recommendation Service Outage (:8093) — Personalized Feed Offline",
+            "what_is_happening": "Recommendation Service (:8093) is DOWN (service_up=0, HTTP 503). Homepage personalized rails cannot be computed.",
+            "cause": "Recommendation process stopped or severe dependency starvation.",
+            "measures": [
+                "Verify recommendation process is running: curl -s http://localhost:8093/health",
+                "Check if Catalog (:8087) or History (:8092) are offline, starving recommendations",
+                "Reset active fault in Fault Lab (:4001)",
+            ],
+            "why": "Recommendation Service (:8093) is down. Customer UI displays fallback trending feed.",
+            "action": "curl -s http://localhost:8093/health",
+            "command": "curl -s http://localhost:8093/health",
+            "priority": "P1",
+        },
+        "high_error": {
+            "title": "Recommendation Cascade Failure on :8093 ({err_pct}%)",
+            "what_is_happening": "Recommendation Service is failing {err_pct}% of recommendation computations, returning HTTP 5xx responses.",
+            "cause": "Downstream dependency failure: Catalog (:8087) or History (:8092) rejected calls. Recommendation Service is a caller victim in a cascading failure.",
+            "measures": [
+                "DO NOT restart Recommendation Service first; diagnose the underlying callee service (Catalog or History)",
+                "Recover the failing downstream microservice; Recommendation Service will heal automatically",
+                "Enable cached fallback recommendations when Catalog service is degraded",
+            ],
+            "why": "Recommendation Service is failing requests due to downstream dependency errors.",
+            "action": "curl -s http://localhost:8093/health",
+            "command": "curl -s http://localhost:8093/health",
+            "priority": "P1",
+        },
+        "low_error": {
+            "title": "Recommendation Jitter ({err_pct}%)",
+            "what_is_happening": "Low error rate of {err_pct}% on recommendation pipeline.",
+            "cause": "Minor cold-start cache miss or profile parsing timeout.",
+            "measures": [
+                "Monitor error trend; fallback trending movies served automatically",
+            ],
+            "why": "Recommendation error rate is only {err_pct}%. Core movie playback unaffected.",
+            "action": "curl -s http://localhost:8093/health",
+            "command": "curl -s http://localhost:8093/health",
+            "priority": "P3",
+        },
+        "latency": {
+            "title": "Recommendation Cascade Latency Exhaustion — P99 {p99_s}s",
+            "what_is_happening": "Recommendation Service P99 latency ({p99_s}s) exceeds 0.600s SLA. High response delay.",
+            "cause": "Synchronous blocking calls to Catalog (:8087) or History (:8092) are delaying recommendation assembly.",
+            "measures": [
+                "Inspect Catalog Service (:8087) latency in Fault Lab (:4001)",
+                "Ensure parallel asynchronous calls to Catalog and History instead of serial HTTP fetches",
+                "Reset active latency faults across dependencies: POST http://localhost:8087/fault/reset",
+            ],
+            "why": "Recommendation P99 latency ({p99_s}s) exceeds 0.600s SLA budget. Blocked on upstream microservices.",
+            "action": "curl -s -X POST http://localhost:8087/fault/reset",
+            "command": "curl -s -X POST http://localhost:8087/fault/reset",
+            "priority": "P2",
+        },
+    },
+    "history": {
+        "label": "History Service",
+        "port": 8092,
+        "down": {
+            "title": "Playback History Service Outage (:8092)",
+            "what_is_happening": "History Service (:8092) is DOWN (service_up=0, HTTP 503). Continue-watching progress tracking is unavailable.",
+            "cause": "Process stopped or injected DOWN fault.",
+            "measures": [
+                "Verify history service health: curl -s http://localhost:8092/health",
+                "Reset active fault in Fault Lab (:4001)",
+            ],
+            "why": "History Service is down. Video playback resumes from beginning; continue-watching rail empty.",
+            "action": "curl -s http://localhost:8092/health",
+            "command": "curl -s http://localhost:8092/health",
+            "priority": "P2",
+        },
+        "high_error": {
+            "title": "Watch Progress Heartbeat Rejections ({err_pct}%)",
+            "what_is_happening": "History Service failing {err_pct}% of playback progress heartbeats.",
+            "cause": "Concurrent watch progress write contention or memory lock timeout.",
+            "measures": [
+                "Inspect history service error logs",
+                "Ensure playback heartbeats are sent with debouncing",
+            ],
+            "why": "History Service is returning errors on watch progress recording.",
+            "action": "curl -s http://localhost:8092/health",
+            "command": "curl -s http://localhost:8092/health",
+            "priority": "P2",
+        },
+        "low_error": {
+            "title": "Playback Heartbeat Jitter ({err_pct}%)",
+            "what_is_happening": "Minor {err_pct}% heartbeat drop on video progress.",
+            "cause": "Client video scrub transient disconnection.",
+            "measures": [
+                "Monitor playback telemetry; core streaming unaffected",
+            ],
+            "why": "Low error rate on playback telemetry.",
+            "action": "curl -s http://localhost:8092/health",
+            "command": "curl -s http://localhost:8092/health",
+            "priority": "P3",
+        },
+        "latency": {
+            "title": "History Query Latency ({p99_s}s)",
+            "what_is_happening": "History P99 latency ({p99_s}s) exceeds 0.400s SLA.",
+            "cause": "Injected delay or slow history queries.",
+            "measures": [
+                "Reset active latency faults in Fault Lab (:4001)",
+                "Verify client heartbeat debounce interval",
+            ],
+            "why": "History latency exceeds SLA target.",
+            "action": "curl -s -X POST http://localhost:8092/fault/reset",
+            "command": "curl -s -X POST http://localhost:8092/fault/reset",
+            "priority": "P3",
+        },
+    },
+    "watchlist": {
+        "label": "Watchlist Service",
+        "port": 8089,
+        "down": {
+            "title": "Watchlist Service Outage (:8089)",
+            "what_is_happening": "Watchlist Service (:8089) is DOWN (service_up=0, HTTP 503). User 'My List' is unavailable.",
+            "cause": "Process stopped or injected DOWN fault.",
+            "measures": [
+                "Verify watchlist health: curl -s http://localhost:8089/health",
+                "Reset active fault in Fault Lab (:4001)",
+            ],
+            "why": "Watchlist Service is down. Customers cannot add/remove movies from My List.",
+            "action": "curl -s http://localhost:8089/health",
+            "command": "curl -s http://localhost:8089/health",
+            "priority": "P2",
+        },
+        "high_error": {
+            "title": "Watchlist Modification Failures ({err_pct}%)",
+            "what_is_happening": "Watchlist returning {err_pct}% errors on add/remove requests.",
+            "cause": "Watchlist state storage error.",
+            "measures": [
+                "Inspect watchlist error logs",
+                "Verify user profile session",
+            ],
+            "why": "Watchlist operations failing.",
+            "action": "curl -s http://localhost:8089/health",
+            "command": "curl -s http://localhost:8089/health",
+            "priority": "P2",
+        },
+        "low_error": {
+            "title": "Watchlist Sync Fluctuation ({err_pct}%)",
+            "what_is_happening": "Minor error rate of {err_pct}% on watchlist.",
+            "cause": "Duplicate bookmark insertion or transient network blip.",
+            "measures": [
+                "Allow client retry; core streaming unaffected",
+            ],
+            "why": "Minor watchlist error rate.",
+            "action": "curl -s http://localhost:8089/health",
+            "command": "curl -s http://localhost:8089/health",
+            "priority": "P3",
+        },
+        "latency": {
+            "title": "Watchlist Latency ({p99_s}s)",
+            "what_is_happening": "Watchlist P99 latency ({p99_s}s) exceeds 0.400s SLA.",
+            "cause": "Injected delay in watchlist microservice.",
+            "measures": [
+                "Reset latency in Fault Lab (:4001)",
+            ],
+            "why": "Watchlist latency exceeds SLA.",
+            "action": "curl -s -X POST http://localhost:8089/fault/reset",
+            "command": "curl -s -X POST http://localhost:8089/fault/reset",
+            "priority": "P3",
+        },
+    },
+    "user": {
+        "label": "User Service",
+        "port": 8088,
+        "down": {
+            "title": "User Profile Service Outage (:8088)",
+            "what_is_happening": "User Service (:8088) is DOWN (service_up=0, HTTP 503). Profile switching and authentication offline.",
+            "cause": "Injected service outage or user service process crash.",
+            "measures": [
+                "Verify user service process: curl -s http://localhost:8088/health",
+                "Reset active fault in Fault Lab (:4001)",
+            ],
+            "why": "User Service is down. Profile management and user preference personalization offline.",
+            "action": "curl -s http://localhost:8088/health",
+            "command": "curl -s http://localhost:8088/health",
+            "priority": "P1",
+        },
+        "high_error": {
+            "title": "User Authentication & Profile Errors ({err_pct}%)",
+            "what_is_happening": "User Service returning {err_pct}% errors on profile requests.",
+            "cause": "Session token validation failure or profile repository error.",
+            "measures": [
+                "Inspect user service error logs",
+                "Verify profile repository health",
+            ],
+            "why": "User profile service errors.",
+            "action": "curl -s http://localhost:8088/health",
+            "command": "curl -s http://localhost:8088/health",
+            "priority": "P1",
+        },
+        "low_error": {
+            "title": "User Session Jitter ({err_pct}%)",
+            "what_is_happening": "Minor error rate of {err_pct}% on user service.",
+            "cause": "Expired session token renewal lag.",
+            "measures": [
+                "Allow client session refresh",
+            ],
+            "why": "Minor user service error rate.",
+            "action": "curl -s http://localhost:8088/health",
+            "command": "curl -s http://localhost:8088/health",
+            "priority": "P3",
+        },
+        "latency": {
+            "title": "User Service Latency ({p99_s}s)",
+            "what_is_happening": "User Service P99 latency ({p99_s}s) exceeds 0.300s SLA.",
+            "cause": "Injected delay in user microservice.",
+            "measures": [
+                "Reset latency in Fault Lab (:4001)",
+            ],
+            "why": "User latency exceeds SLA.",
+            "action": "curl -s -X POST http://localhost:8088/fault/reset",
+            "command": "curl -s -X POST http://localhost:8088/fault/reset",
+            "priority": "P2",
+        },
+    },
 }
 
 
-def intelligent_recommendations(raw: dict, causes: list, impact: dict, criticality: dict, sla: dict) -> list:
+def intelligent_recommendations(raw: dict, causes: list, impact: dict, criticality: dict, sla: dict, workload: str = "omnistore") -> list:
     """Create particular, microservice-specific recommendations from current evidence, state, and fault history."""
+    services = WORKLOAD_SERVICES.get(workload, SERVICES)
+    arch_edges = ARCH_EDGES_BY_WORKLOAD.get(workload, ARCH_EDGES_BY_WORKLOAD["omnistore"])
     active = _active_fault_events()
     recommendations = []
 
@@ -1470,20 +1804,20 @@ def intelligent_recommendations(raw: dict, causes: list, impact: dict, criticali
             "criticality": criticality["percentage"],
         })
 
-    affected_services = [svc for svc, value in impact["services"].items() if value > 0]
+    affected_services = [svc for svc, value in impact["services"].items() if value > 0 and svc in services]
     repeated = {
         svc: sum(1 for event in FAULT_EVENTS if event.get("service") == svc and event.get("status") in ("ACTIVE", "INJECTED"))
         for svc in affected_services
     }
-    cascading = len(affected_services) > 1 or len({dst for src, dst in ARCH_EDGES if src in affected_services} & set(affected_services)) > 0
+    cascading = len(affected_services) > 1 or len({dst for src, dst in arch_edges if src in affected_services} & set(affected_services)) > 0
 
     if cascading:
         def _dep_score(svc):
             # Prioritize services that are down or faulted, and callee dependencies over orchestrator callers
             is_down = 10 if raw.get(f"{svc}_service_up", 1.0) == 0 else 0
             has_fault = 5 if raw.get(f"{svc}_fault", "NONE") != "NONE" else 0
-            callers = sum(1 for src, dst in ARCH_EDGES if dst == svc and src in affected_services)
-            calls_others = sum(1 for src, dst in ARCH_EDGES if src == svc and dst in affected_services)
+            callers = sum(1 for src, dst in arch_edges if dst == svc and src in affected_services)
+            calls_others = sum(1 for src, dst in arch_edges if src == svc and dst in affected_services)
             return is_down + has_fault + (callers * 2) - calls_others
 
         sorted_candidates = sorted(affected_services, key=_dep_score, reverse=True)
@@ -1492,20 +1826,21 @@ def intelligent_recommendations(raw: dict, causes: list, impact: dict, criticali
         root_label = SERVICE_LABELS.get(root_svc, root_svc)
         downstream_labels = ", ".join(SERVICE_LABELS.get(s, s) for s in downstream) if downstream else "downstream services"
         port = SERVICE_PORTS.get(root_svc, 8080)
+        default_restart = f"curl -s http://localhost:{port}/health" if workload == "moviestream" else f"docker restart {root_svc}-service"
         add(root_svc,
             f"Cascade Root Cause: Investigate the upstream dependency ({root_label}) before restarting downstream services.",
             f"Multiple related services ({', '.join(affected_services)}) are affected. The failure originated in {root_label} and propagated to {downstream_labels}. Restarting {downstream_labels} will not fix the cascade.",
             f"Affected services: {', '.join(affected_services)}; upstream root: {root_label} (:{port}); dependency impact: {criticality['components']['dependency']:.1f}%.",
-            f"docker restart {root_svc}-service",
+            default_restart,
             "P1",
-            command=f"docker restart {root_svc}-service",
+            command=default_restart,
             what_is_happening=f"Cascading failure detected across {len(affected_services)} services ({', '.join(affected_services)}). Downstream callers are failing because upstream dependency {root_label} is offline or rejecting calls.",
             cause=f"Architectural cascade propagation: {root_label} is the callee dependency root cause. Synchronous calls from {downstream_labels} timed out or failed, propagating errors through the dependency graph.",
             measures=[
-                f"Prioritize recovering the upstream root cause dependency ({root_label}) first: docker restart {root_svc}-service",
+                f"Prioritize recovering the upstream root cause dependency ({root_label}) first: {default_restart}",
                 f"Do NOT restart caller services ({downstream_labels}) yet; they will self-heal automatically once {root_label} recovers",
-                f"Verify health of the root dependency: curl -s http://localhost:{port}/actuator/health",
-                f"Inspect Jaeger distributed trace for propagation timing: http://localhost:16686",
+                f"Verify health of the root dependency: curl -s http://localhost:{port}/health",
+                f"Inspect distributed trace for propagation timing",
             ])
 
     for svc in affected_services:
@@ -1520,34 +1855,36 @@ def intelligent_recommendations(raw: dict, causes: list, impact: dict, criticali
         err_pct = round((err / max(rr, 0.001)) * 100, 1) if rr > 0 else round(err * 100.0, 1)
         sla_target = SLA_TARGETS.get(svc, {"max_error_rate": 0.01, "max_p99_s": 0.5})
         budget_pct = round((err / max(sla_target["max_error_rate"], 1e-6)) * 100, 1)
+        svc_port = SERVICE_PORTS.get(svc, 8080)
+        default_cmd = f"curl -s http://localhost:{svc_port}/health" if workload == "moviestream" else f"docker restart {svc}-service"
 
         if repeated.get(svc, 0) >= 3:
             add(svc,
                 f"Investigate recurring failure pattern on {label} instead of repeating restarts.",
                 f"{label} has {repeated[svc]} recorded fault events in recent window, indicating recurrence. Repetitive restarts do not address root cause resource leaks.",
                 f"Fault type: {fault}; recent event count: {repeated[svc]}; current impact: {impact['services'][svc]:.1f}%.",
-                f"docker logs {svc}-service --tail 200",
+                default_cmd,
                 "P1",
-                command=f"docker logs {svc}-service --tail 100",
+                command=default_cmd,
                 what_is_happening=f"{label} has failed {repeated[svc]} times in the recent observation window. Repeated container restarts have failed to permanently stabilize the service.",
                 cause="Chronic resource exhaustion, database connection pool leak, or memory leak causing recurring process crashes.",
                 measures=[
-                    f"Check heap dump and memory leak traces: docker logs {svc}-service --tail 200 | grep -E 'OutOfMemoryError|ConnectionPoolTimeoutException|Deadlock'",
-                    "Profile JVM memory footprint and active thread count",
-                    "Inspect MongoDB Atlas connection limits and slow query logs",
+                    f"Check heap dump and memory leak traces for {label}",
+                    f"Profile memory footprint and active thread count on port {svc_port}",
+                    "Inspect database connection limits and slow query logs",
                 ])
         elif fault == "DOWN" or up == 0:
             cfg = diag.get("down", {})
             add(svc,
                 cfg.get("title", f"Restart {label} — Service Down"),
                 cfg.get("why", f"{label} is completely offline (service_up=0)."),
-                f"Status: DOWN (service_up=0); port: {SERVICE_PORTS.get(svc)}; impact: {impact['services'][svc]:.1f}%.",
-                cfg.get("action", f"docker restart {svc}-service"),
+                f"Status: DOWN (service_up=0); port: {svc_port}; impact: {impact['services'][svc]:.1f}%.",
+                cfg.get("action", default_cmd),
                 cfg.get("priority", "P1"),
-                command=cfg.get("command", f"docker restart {svc}-service"),
+                command=cfg.get("command", default_cmd),
                 what_is_happening=cfg.get("what_is_happening", f"{label} is completely offline (service_up=0)."),
                 cause=cfg.get("cause", f"{label} process is terminated or injected DOWN fault is active."),
-                measures=cfg.get("measures", [f"docker restart {svc}-service"]))
+                measures=cfg.get("measures", [default_cmd]))
         elif fault == "ERROR" or err > 0.08:
             cfg = diag.get("high_error", {})
             title = cfg.get("title", f"Remediate {label} Error Rate").format(err_pct=err_pct)
@@ -1558,12 +1895,12 @@ def intelligent_recommendations(raw: dict, causes: list, impact: dict, criticali
                 title,
                 why,
                 f"Fault: {fault}; error rate: {err:.4f}/s ({err_pct}% of traffic); SLA error budget consumed: {budget_pct}%; impact: {impact['services'][svc]:.1f}%.",
-                cfg.get("action", f"docker logs {svc}-service --tail 100"),
+                cfg.get("action", default_cmd),
                 cfg.get("priority", "P1"),
-                command=cfg.get("command", f"docker logs {svc}-service --tail 100"),
+                command=cfg.get("command", default_cmd),
                 what_is_happening=what_is_happening,
                 cause=cause,
-                measures=cfg.get("measures", [f"docker logs {svc}-service --tail 100"]))
+                measures=cfg.get("measures", [default_cmd]))
         elif err > 0.005 or (err > 0 and err <= 0.08):
             cfg = diag.get("low_error", {})
             title = cfg.get("title", f"Monitor {label} Transient Fluctuation").format(err_pct=err_pct)
@@ -1574,12 +1911,12 @@ def intelligent_recommendations(raw: dict, causes: list, impact: dict, criticali
                 title,
                 why,
                 f"Minor error rate: {err:.4f}/s ({err_pct}%); impact: {impact['services'][svc]:.1f}%; core operations unaffected.",
-                cfg.get("action", f"docker logs {svc}-service --tail 50"),
+                cfg.get("action", default_cmd),
                 cfg.get("priority", "P3"),
-                command=cfg.get("command", f"docker logs {svc}-service --tail 50"),
+                command=cfg.get("command", default_cmd),
                 what_is_happening=what_is_happening,
                 cause=cause,
-                measures=cfg.get("measures", [f"docker logs {svc}-service --tail 50"]))
+                measures=cfg.get("measures", [default_cmd]))
         elif fault == "LATENCY" or p99 > sla_target["max_p99_s"]:
             cfg = diag.get("latency", {})
             p99_val = round(p99, 3)
@@ -1591,22 +1928,26 @@ def intelligent_recommendations(raw: dict, causes: list, impact: dict, criticali
                 title,
                 why,
                 f"P99 latency: {p99:.3f}s; injected delay: {delay:.0f}ms; SLA limit: {sla_target['max_p99_s']}s; impact: {impact['services'][svc]:.1f}%.",
-                cfg.get("action", f"docker logs {svc}-service --tail 50"),
+                cfg.get("action", default_cmd),
                 cfg.get("priority", "P2"),
-                command=cfg.get("command", f"docker logs {svc}-service --tail 50"),
+                command=cfg.get("command", default_cmd),
                 what_is_happening=what_is_happening,
                 cause=cause,
-                measures=cfg.get("measures", [f"docker logs {svc}-service --tail 50"]))
+                measures=cfg.get("measures", [default_cmd]))
 
     if not recommendations and not causes:
+        app_name = "MovieStream" if workload == "moviestream" else "OmniStore"
+        svc_count = len(services)
+        svc_names = ", ".join([SERVICE_LABELS.get(s, s) for s in services])
+        check_cmd = f"curl -s http://localhost:{SERVICE_PORTS.get(services[0], 8087)}/health" if workload == "moviestream" else "curl -s http://localhost:8080/actuator/health"
         add("system",
-            "All OmniStore Microservices Operational — Normal Telemetry",
-            "All 6 microservices (Order, Payment, Inventory, Shipping, Delivery, Notification) are healthy with zero active faults and zero SLA breaches.",
+            f"All {app_name} Microservices Operational — Normal Telemetry",
+            f"All {svc_count} microservices ({svc_names}) are healthy with zero active faults and zero SLA breaches.",
             f"Criticality: {criticality['percentage']:.1f}%; system error rate: 0.00%; active incidents: 0.",
             "System is operating normally. To test cascade prediction resilience, inject faults via Fault Lab (:4001).",
             "P3",
-            command="curl -s http://localhost:8080/actuator/health",
-            what_is_happening="All 6 OmniStore microservices (Order, Payment, Inventory, Shipping, Delivery, Notification) are healthy with zero active faults and zero SLA breaches.",
+            command=check_cmd,
+            what_is_happening=f"All {svc_count} {app_name} microservices ({svc_names}) are healthy with zero active faults and zero SLA breaches.",
             cause="System is operating within healthy baseline tolerances. Error rate is 0.00% and P99 latency is below all SLA thresholds.",
             measures=[
                 "System is fully operational; no remediation required",
@@ -1640,19 +1981,20 @@ def enrich_fault_events(raw: dict, impact: dict, criticality: dict, recommendati
         _save_fault_events()
 
 
-def full_pipeline(raw: dict) -> dict:
-    causes   = root_cause(raw)
-    z        = zscore_analysis(raw)
-    t        = temporal_analysis(raw)
-    nx_data  = dependency_graph(raw, causes)
+def full_pipeline(raw: dict, workload: str = "omnistore") -> dict:
+    services = WORKLOAD_SERVICES.get(workload, SERVICES)
+    causes   = root_cause(raw, workload=workload)
+    z        = zscore_analysis(raw, workload=workload)
+    t        = temporal_analysis(raw, workload=workload)
+    nx_data  = dependency_graph(raw, causes, workload=workload)
     fi       = feature_importances()
-    sla      = sla_compliance(raw)
+    sla      = sla_compliance(raw, workload=workload)
     obs      = observability_status()
-    impact   = impact_analysis(raw)
-    criticality = criticality_analysis(raw, impact)
+    impact   = impact_analysis(raw, workload=workload)
+    criticality = criticality_analysis(raw, impact, workload=workload)
 
-    # ML Cascade Failure Prediction driven by Random Forest model (71 features)
-    ml_result  = predict_cascade(raw)
+    # ML Cascade Failure Prediction driven by Random Forest model (71 features) for OmniStore, or topology engine for MovieStream
+    ml_result  = predict_cascade(raw, workload=workload)
     prediction = ml_result["prediction"]
     cr         = ml_result["cascade_risk"]
     confidence = ml_result["confidence"]
@@ -1673,18 +2015,18 @@ def full_pipeline(raw: dict) -> dict:
     elif criticality["severity"] == "HIGH" and rl == "LOW":
         rl = "MEDIUM" if raw.get("system_max_error_rate", 0) <= 0.15 else "HIGH"
 
-    recs = intelligent_recommendations(raw, causes, impact, criticality, sla)
+    recs = intelligent_recommendations(raw, causes, impact, criticality, sla, workload=workload)
     enrich_fault_events(raw, impact, criticality, recs)
-    _append_incident(raw, causes, rl)
+    _append_incident(raw, causes, rl, workload=workload)
 
     # Compute observability percentages for each service
     obs_pct = {}
-    for svc in SERVICES:
+    for svc in services:
         up  = float(raw.get(f"{svc}_service_up",      1.0))
         err = float(raw.get(f"{svc}_error_rate_5xx",  0.0))
         p99 = float(raw.get(f"{svc}_p99_latency_s",   0.0))
         rr  = float(raw.get(f"{svc}_request_rate",    0.0))
-        sla_t = SLA_TARGETS[svc]
+        sla_t = SLA_TARGETS.get(svc, {"max_error_rate": 0.01, "max_p99_s": 0.5})
 
         # Error rate as % of requests
         err_pct  = round((err / max(rr, 0.001)) * 100, 2) if rr > 0 else 0.0
@@ -1706,6 +2048,7 @@ def full_pipeline(raw: dict) -> dict:
         }
 
     return {
+        "workload":              workload,
         "prediction":            prediction,
         "cascade_risk":          cr,
         "risk_level":            rl,
@@ -1742,7 +2085,7 @@ def full_pipeline(raw: dict) -> dict:
                 "jvm_heap_mb":    round(float(raw.get(f"{svc}_jvm_heap_mb",    0)), 1),
                 "active_threads": int(raw.get(f"{svc}_active_threads", 0)),
             }
-            for svc in SERVICES
+            for svc in services
         },
         "system": {
             "mean_error_rate":    round(float(raw.get("system_mean_error_rate",  0)), 4),
@@ -1764,8 +2107,11 @@ def health():
 @app.route("/api/metrics/live")
 def metrics_live():
     try:
-        raw    = scrape()
-        result = full_pipeline(raw)
+        workload = request.args.get("workload", "omnistore").lower()
+        if workload not in WORKLOAD_SERVICES:
+            workload = "omnistore"
+        raw    = scrape(workload=workload)
+        result = full_pipeline(raw, workload=workload)
         return jsonify(result)
     except Exception as e:
         import traceback
@@ -1792,7 +2138,7 @@ def fault_events_ingest():
     required = ("fault_id", "service", "fault", "status", "timestamp")
     if any(not body.get(field) for field in required):
         return jsonify({"error": "fault_id, service, fault, status and timestamp are required"}), 400
-    if body["service"] not in SERVICES or str(body["fault"]).upper() not in ("NONE", "LATENCY", "ERROR", "DOWN"):
+    if body["service"] not in ALL_SERVICES or str(body["fault"]).upper() not in ("NONE", "LATENCY", "ERROR", "DOWN"):
         return jsonify({"error": "invalid service or fault type"}), 400
     if any(event.get("fault_id") == body["fault_id"] for event in FAULT_EVENTS):
         return jsonify({"status": "duplicate", "fault_id": body["fault_id"]}), 200
@@ -1871,8 +2217,12 @@ def resolve_incident():
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
-        raw    = request.get_json(force=True) or {}
-        result = full_pipeline(raw)
+        body = request.get_json(force=True) or {}
+        workload = request.args.get("workload", body.get("workload", "omnistore")).lower()
+        if workload not in WORKLOAD_SERVICES:
+            workload = "omnistore"
+        raw = body.get("metrics", body)
+        result = full_pipeline(raw, workload=workload)
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
