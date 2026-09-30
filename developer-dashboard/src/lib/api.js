@@ -38,9 +38,13 @@ export async function fetchLiveMetrics(workload = 'omnistore') {
   return apiFetch(`${ML_API}/api/metrics/live?workload=${encodeURIComponent(workload)}`)
 }
 
-/** Clears the rolling incident log (POST /incidents/clear). */
-export async function clearIncidents() {
-  return apiFetch(`${ML_API}/api/incidents/clear`, { method: 'POST' })
+/** Clears the rolling incident log (POST /incidents/clear with optional workload or service filter). */
+export async function clearIncidents(workload = null, service = null) {
+  const params = new URLSearchParams()
+  if (workload) params.append('workload', workload)
+  if (service) params.append('service', service)
+  const query = params.toString() ? `?${params.toString()}` : ''
+  return apiFetch(`${ML_API}/api/incidents/clear${query}`, { method: 'POST' })
 }
 
 /**

@@ -3,6 +3,20 @@ import { ResponsiveContainer, AreaChart, Area } from 'recharts'
 import { fmtMetric } from '../lib/api'
 import { deriveServiceStatus, SERVICE_STATUS_CFG } from './SystemStatus'
 
+export const SERVICE_COLOR = {
+  order:          '#6366f1',
+  payment:        '#22d3ee',
+  inventory:      '#f59e0b',
+  shipping:       '#34d399',
+  delivery:       '#f97316',
+  notification:   '#a78bfa',
+  catalog:        '#ec4899',
+  user:           '#06b6d4',
+  watchlist:      '#8b5cf6',
+  history:        '#f59e0b',
+  recommendation: '#10b981',
+}
+
 /**
  * ServiceCard — generic card for one service.
  *

@@ -136,33 +136,15 @@ def train(dataset_path: str):
         if not HAS_SMOTE:
             print("[INFO] imbalanced-learn not installed - skipping SMOTE. Run: pip install imbalanced-learn")
 
-    # ── Hyperparameter search ─────────────────────────────────────────────────
-    print("\nRunning GridSearchCV (this may take a minute)...")
-    param_grid = {
-        "n_estimators":      [100, 200],
-        "max_depth":         [None, 10, 20],
-        "min_samples_split": [2, 5],
-        "min_samples_leaf":  [1, 2],
-        "max_features":      ["sqrt", "log2"],
-    }
-    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-    rf_base = RandomForestClassifier(
+    print("\nTraining RandomForestClassifier...")
+    best_rf = RandomForestClassifier(
+        n_estimators=100,
+        max_depth=None,
+        max_features="sqrt",
         random_state=42,
         class_weight="balanced",
-        n_jobs=-1,
     )
-    grid_search = GridSearchCV(
-        rf_base,
-        param_grid,
-        cv=cv,
-        scoring="f1_weighted",
-        n_jobs=-1,
-        verbose=0,
-    )
-    grid_search.fit(X_train, y_train)
-    best_rf = grid_search.best_estimator_
-    print(f"Best params: {grid_search.best_params_}")
-    print(f"Best CV F1: {grid_search.best_score_:.4f}")
+    best_rf.fit(X_train, y_train)
 
     # ── Evaluate on test set ──────────────────────────────────────────────────
     y_pred = best_rf.predict(X_test)
@@ -176,7 +158,7 @@ def train(dataset_path: str):
     report_lines.append(f"Features      : {len(feature_names)}")
     report_lines.append(f"Train samples : {len(X_train)}")
     report_lines.append(f"Test samples  : {len(X_test)}")
-    report_lines.append(f"\nBest hyperparameters:\n  {grid_search.best_params_}")
+    report_lines.append(f"\nModel: RandomForestClassifier(n_estimators=100)")
     report_lines.append(f"\nClassification Report:\n")
     report_lines.append(classification_report(y_test, y_pred,
                                                target_names=["Normal", "Cascade Failure"]))

@@ -1,48 +1,82 @@
 import React, { useState } from 'react'
 import IncidentFeed from '../components/IncidentFeed'
-import { deriveServiceKeys, clearIncidents, resolveIncident } from '../lib/api'
+import { deriveServiceKeys, clearIncidents, resolveIncident, WORKLOAD_SERVICES, WORKLOAD_PORTS, fmtMetric } from '../lib/api'
+import { toLabel, SERVICE_COLOR } from '../components/ServiceCard'
+import { deriveServiceStatus, SERVICE_STATUS_CFG } from '../components/SystemStatus'
 import {
   X, User, FileText, CheckCircle, AlertTriangle, Send,
+  Server, Flame, Activity, Trash2, Filter, ChevronRight,
+  RefreshCw, Shield, Clock, Zap
 } from 'lucide-react'
 
-export default function IncidentsPage({ data, loading, onRefresh }) {
-  const incidents   = data?.incident_log ?? []
-  const [filter,    setFilter]    = useState('ALL')
-  const [svcFilter, setSvcFilter] = useState('ALL')
-  const [clearing,  setClearing]  = useState(false)
+export default function IncidentsPage({ data, loading, onRefresh, workload = 'omnistore' }) {
+  const incidents = data?.incident_log ?? []
+  const liveMetrics = data?.live_metrics ?? {}
+
+  const [filter, setFilter] = useState('ALL') // Type filter: ALL, SERVICE_DOWN, HIGH_ERROR_RATE, etc.
+  const [selectedService, setSelectedService] = useState('ALL') // Microservice filter: ALL or specific key
+  const [clearing, setClearing] = useState(false)
 
   // Resolution note modal state
-  const [noteTarget,    setNoteTarget]    = useState(null)   // the incident being noted
-  const [noteName,      setNoteName]      = useState('')
-  const [noteText,      setNoteText]      = useState('')
-  const [noteSubmitting,setNoteSubmitting]= useState(false)
-  const [noteError,     setNoteError]     = useState('')
-  const [noteSuccess,   setNoteSuccess]   = useState(false)
+  const [noteTarget, setNoteTarget] = useState(null)
+  const [noteName, setNoteName] = useState('')
+  const [noteText, setNoteText] = useState('')
+  const [noteSubmitting, setNoteSubmitting] = useState(false)
+  const [noteError, setNoteError] = useState('')
+  const [noteSuccess, setNoteSuccess] = useState(false)
 
-  const reasons  = ['ALL', ...new Set(incidents.map(e => e.reason).filter(Boolean))]
-  const services = ['ALL', ...new Set(incidents.map(e => e.service).filter(Boolean))]
+  // Workload-specific microservice keys
+  const activeWorkloadServices = WORKLOAD_SERVICES[workload] ?? deriveServiceKeys(liveMetrics)
 
-  const filtered = incidents.filter(e => {
-    const matchReason = filter    === 'ALL' || e.reason  === filter
-    const matchSvc    = svcFilter === 'ALL' || e.service === svcFilter
-    return matchReason && matchSvc
+  // Calculate incident counts per microservice
+  const incidentCountByService = {}
+  const activeCountByService = {}
+
+  activeWorkloadServices.forEach(s => {
+    incidentCountByService[s] = 0
+    activeCountByService[s] = 0
   })
 
-  // Per-service latest entry
+  // Group latest incident state per microservice
   const latestPerService = {}
-  incidents.forEach(e => { if (!latestPerService[e.service]) latestPerService[e.service] = e })
-  const activeCount   = Object.values(latestPerService).filter(e => e.reason !== 'RESOLVED').length
-  const resolvedCount = Object.values(latestPerService).filter(e => e.reason === 'RESOLVED').length
+  incidents.forEach(e => {
+    if (e.service) {
+      if (!latestPerService[e.service]) latestPerService[e.service] = e
+      if (incidentCountByService[e.service] !== undefined) {
+        incidentCountByService[e.service]++
+      }
+      if (e.reason !== 'RESOLVED' && activeCountByService[e.service] !== undefined) {
+        activeCountByService[e.service]++
+      }
+    }
+  })
 
-  async function handleClear() {
-    if (!window.confirm('Clear all incident history?')) return
+  const totalActiveIncidents = Object.values(latestPerService).filter(e => e.reason !== 'RESOLVED').length
+  const totalResolvedIncidents = Object.values(latestPerService).filter(e => e.reason === 'RESOLVED').length
+
+  // Filter incidents for display
+  const filteredIncidents = incidents.filter(e => {
+    // Ensure incident belongs to active workload microservices
+    const isWorkloadService = activeWorkloadServices.includes(e.service)
+    if (!isWorkloadService && e.service) return false
+
+    const matchType = filter === 'ALL' || e.reason === filter
+    const matchSvc = selectedService === 'ALL' || e.service === selectedService
+    return matchType && matchSvc
+  })
+
+  // Reasons present in current filtered set
+  const availableReasons = ['ALL', ...new Set(incidents.map(e => e.reason).filter(Boolean))]
+
+  async function handleClear(svcKey = null) {
+    const targetLabel = svcKey ? `${toLabel(svcKey)}` : `${workload === 'moviestream' ? 'MovieStream' : 'OmniStore'} workload`
+    if (!window.confirm(`Clear incident history for ${targetLabel}?`)) return
     setClearing(true)
-    await clearIncidents()
+    await clearIncidents(workload, svcKey)
     setClearing(false)
     onRefresh()
   }
 
-  // Open the Add Note modal for a resolved incident
   function openNoteModal(event) {
     setNoteTarget(event)
     setNoteName('')
@@ -70,74 +104,229 @@ export default function IncidentsPage({ data, loading, onRefresh }) {
       setNoteError(`Failed to save note: ${error}`)
     } else {
       setNoteSuccess(true)
-      // Refresh data so the note appears immediately
       onRefresh()
-      // Close after short delay so the success state is visible
       setTimeout(closeNoteModal, 1200)
     }
   }
 
-  return (
-    <div className="space-y-4">
+  // Selected microservice details
+  const selMetrics = selectedService !== 'ALL' ? (liveMetrics[selectedService] ?? {}) : null
+  const selStatus = selectedService !== 'ALL' ? deriveServiceStatus(selMetrics) : null
+  const selCfg = selStatus ? SERVICE_STATUS_CFG[selStatus] : null
+  const selPort = selectedService !== 'ALL' ? (WORKLOAD_PORTS[selectedService] ?? '?') : null
 
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+  return (
+    <div className="space-y-5">
+
+      {/* Page Header */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-base font-semibold text-slate-100">Incidents</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-base font-semibold text-slate-100">Microservice Incident Management</h1>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-300">
+              {workload === 'moviestream' ? 'MovieStream' : 'OmniStore'} Cluster
+            </span>
+          </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Rolling log ·{' '}
-            {activeCount > 0
-              ? <span className="text-amber-400 font-medium">{activeCount} active</span>
-              : <span className="text-emerald-400">all resolved</span>}
-            {resolvedCount > 0 && <span className="text-slate-600"> · {resolvedCount} resolved</span>}
-            <span className="text-slate-600"> · Click &ldquo;Add Note&rdquo; on a resolved incident to log who fixed it and how</span>
+            Manage microservice incidents separately ·{' '}
+            {totalActiveIncidents > 0
+              ? <span className="text-amber-400 font-medium">{totalActiveIncidents} active across services</span>
+              : <span className="text-emerald-400">all microservices healthy</span>}
+            {totalResolvedIncidents > 0 && <span className="text-slate-600"> · {totalResolvedIncidents} resolved</span>}
           </p>
         </div>
-        <button
-          onClick={handleClear}
-          disabled={clearing || incidents.length === 0}
-          className="text-[11px] px-3 py-1.5 rounded border border-slate-700 text-slate-400 hover:text-red-400 hover:border-red-800/50 hover:bg-red-950/20 transition-colors disabled:opacity-40 shrink-0"
-        >
-          {clearing ? 'Clearing…' : 'Clear log'}
-        </button>
+
+        <div className="flex items-center gap-2">
+          {selectedService !== 'ALL' && (
+            <button
+              onClick={() => handleClear(selectedService)}
+              disabled={clearing || incidentCountByService[selectedService] === 0}
+              className="text-[11px] px-3 py-1.5 rounded border border-red-900/50 bg-red-950/30 text-red-300 hover:bg-red-900/40 transition-colors disabled:opacity-40 flex items-center gap-1.5"
+            >
+              <Trash2 size={11} /> Clear {toLabel(selectedService).replace(' Service', '')} Log
+            </button>
+          )}
+
+          <button
+            onClick={() => handleClear(null)}
+            disabled={clearing || incidents.length === 0}
+            className="text-[11px] px-3 py-1.5 rounded border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-40 flex items-center gap-1.5"
+          >
+            <RefreshCw size={11} className={clearing ? 'animate-spin' : ''} /> Clear All Workload Log
+          </button>
+        </div>
       </div>
 
-      {/* Developer note hint banner */}
-      <div className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-lg border border-indigo-900/50 bg-indigo-950/20 text-xs text-indigo-300">
-        <FileText size={13} className="text-indigo-400 shrink-0 mt-0.5" />
-        <p>
-          <span className="font-semibold">Developer notes</span> — on any resolved incident, click{' '}
-          <span className="font-mono bg-indigo-900/40 px-1 rounded">+ Add Note</span> to record who resolved it and what action was taken.
-          Notes persist and are visible via <span className="font-semibold">View Note</span> on the same row.
-        </p>
+      {/* Microservice Separator Navigation Bar */}
+      <div className="rounded-xl border border-slate-800 bg-slate-900 p-2 space-y-2">
+        <div className="flex items-center justify-between px-2 pt-1 text-xs">
+          <span className="font-semibold text-slate-400 uppercase tracking-wider text-[10px]">
+            Select Microservice to Manage Separately
+          </span>
+          <span className="text-[10px] text-slate-500 font-mono">
+            {activeWorkloadServices.length} Microservices Configured
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+          {/* ALL Microservices tab */}
+          <button
+            onClick={() => setSelectedService('ALL')}
+            className={`px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all whitespace-nowrap ${
+              selectedService === 'ALL'
+                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950'
+                : 'bg-slate-800/80 border border-slate-700/60 text-slate-300 hover:bg-slate-800'
+            }`}
+          >
+            <Activity size={13} className={selectedService === 'ALL' ? 'text-white' : 'text-indigo-400'} />
+            <span>All Microservices</span>
+            <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono ${
+              selectedService === 'ALL' ? 'bg-indigo-700 text-white' : 'bg-slate-900 text-slate-400'
+            }`}>
+              {incidents.length}
+            </span>
+          </button>
+
+          {/* Individual Microservice Tabs */}
+          {activeWorkloadServices.map(key => {
+            const m = liveMetrics[key]
+            const st = deriveServiceStatus(m)
+            const activeInc = activeCountByService[key] || 0
+            const totalInc = incidentCountByService[key] || 0
+            const isSel = selectedService === key
+            const color = SERVICE_COLOR[key] ?? '#6366f1'
+
+            return (
+              <button
+                key={key}
+                onClick={() => setSelectedService(key)}
+                className={`px-3 py-2 rounded-lg text-xs flex items-center gap-2 transition-all whitespace-nowrap ${
+                  isSel
+                    ? 'bg-slate-800 border-2 text-white shadow-md'
+                    : 'bg-slate-950/60 border border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                }`}
+                style={isSel ? { borderColor: color } : {}}
+              >
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                <span className="font-semibold">{toLabel(key).replace(' Service', '')}</span>
+
+                {activeInc > 0 ? (
+                  <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-amber-950 border border-amber-800 text-amber-400 animate-pulse">
+                    {activeInc} active
+                  </span>
+                ) : totalInc > 0 ? (
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-slate-900 text-slate-500">
+                    {totalInc}
+                  </span>
+                ) : (
+                  <span className="text-[9px] text-emerald-500 font-mono">OK</span>
+                )}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-4 text-[11px]">
-        <FilterGroup
-          label="Type"
-          options={reasons}
-          active={filter}
-          onChange={setFilter}
-          formatLabel={r => r === 'ALL' ? 'All' : r.replace(/_/g, ' ')}
-        />
-        <FilterGroup
-          label="Service"
-          options={services}
-          active={svcFilter}
-          onChange={setSvcFilter}
-          formatLabel={s => s === 'ALL' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
-        />
+      {/* Single Microservice Management Banner (When a specific service is selected) */}
+      {selectedService !== 'ALL' && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4 space-y-3 animate-in fade-in duration-150">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-3">
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center border"
+                style={{
+                  backgroundColor: `${SERVICE_COLOR[selectedService] ?? '#6366f1'}20`,
+                  borderColor: `${SERVICE_COLOR[selectedService] ?? '#6366f1'}50`
+                }}
+              >
+                <Server size={16} style={{ color: SERVICE_COLOR[selectedService] ?? '#6366f1' }} />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                  <span>{toLabel(selectedService)}</span>
+                  <span className="text-xs font-mono text-slate-500 font-normal">:{selPort}</span>
+                </h2>
+                <p className="text-[11px] text-slate-400">
+                  Dedicated incident telemetry and log management for {toLabel(selectedService)}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {selCfg && (
+                <span className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full border ${selCfg.badge || ''}`}>
+                  <span className={`w-2 h-2 rounded-full ${selCfg.dot} ${selStatus === 'DOWN' ? 'animate-pulse' : ''}`} />
+                  {selCfg.label}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Microservice Live KPI Summary */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            <div className="bg-slate-950/60 rounded-lg p-2.5 border border-slate-800/80">
+              <span className="text-[10px] text-slate-500">Error Rate</span>
+              <p className={`font-mono font-bold mt-0.5 ${(selMetrics?.error_rate_5xx ?? 0) > 0.01 ? 'text-red-400' : 'text-slate-200'}`}>
+                {fmtMetric(selMetrics?.error_rate_5xx ?? 0, 'rate')}
+              </p>
+            </div>
+            <div className="bg-slate-950/60 rounded-lg p-2.5 border border-slate-800/80">
+              <span className="text-[10px] text-slate-500">P99 Latency</span>
+              <p className={`font-mono font-bold mt-0.5 ${(selMetrics?.p99_latency_s ?? 0) > 0.5 ? 'text-amber-400' : 'text-slate-200'}`}>
+                {fmtMetric(selMetrics?.p99_latency_s ?? 0, 'latency')}
+              </p>
+            </div>
+            <div className="bg-slate-950/60 rounded-lg p-2.5 border border-slate-800/80">
+              <span className="text-[10px] text-slate-500">Active Incidents</span>
+              <p className={`font-mono font-bold mt-0.5 ${(activeCountByService[selectedService] || 0) > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                {activeCountByService[selectedService] || 0}
+              </p>
+            </div>
+            <div className="bg-slate-950/60 rounded-lg p-2.5 border border-slate-800/80">
+              <span className="text-[10px] text-slate-500">Total Logged Incidents</span>
+              <p className="font-mono font-bold text-slate-200 mt-0.5">
+                {incidentCountByService[selectedService] || 0}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Incident Type Filter & Quick Controls */}
+      <div className="flex flex-wrap items-center justify-between gap-3 text-[11px] bg-slate-900/50 p-2.5 rounded-lg border border-slate-800">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-slate-500 flex items-center gap-1">
+            <Filter size={11} /> Filter Event Type:
+          </span>
+          {availableReasons.map(r => (
+            <button
+              key={r}
+              onClick={() => setFilter(r)}
+              className={`px-2.5 py-0.5 rounded border transition-colors ${
+                filter === r
+                  ? 'border-indigo-700 bg-indigo-900/50 text-indigo-300'
+                  : 'border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-300'
+              }`}
+            >
+              {r === 'ALL' ? 'All Types' : r.replace(/_/g, ' ')}
+            </button>
+          ))}
+        </div>
+
+        <span className="text-[11px] text-slate-500">
+          Showing <strong className="text-slate-300">{filteredIncidents.length}</strong> incident logs
+          {selectedService !== 'ALL' && <span> for <strong className="text-indigo-400">{toLabel(selectedService)}</strong></span>}
+        </span>
       </div>
 
-      {/* Feed */}
+      {/* Incident Feed */}
       {loading && !incidents.length ? (
         <div className="space-y-2">
-          {[1,2,3,4,5].map(n => <div key={n} className="h-12 rounded-md bg-slate-800/50 animate-pulse" />)}
+          {[1, 2, 3, 4, 5].map(n => <div key={n} className="h-12 rounded-md bg-slate-800/50 animate-pulse" />)}
         </div>
       ) : (
         <IncidentFeed
-          incidents={filtered}
+          incidents={filteredIncidents}
           loading={false}
           maxItems={0}
           compact={false}
@@ -145,7 +334,7 @@ export default function IncidentsPage({ data, loading, onRefresh }) {
         />
       )}
 
-      {/* ── Add Note Modal ── */}
+      {/* Add Resolution Note Modal */}
       {noteTarget && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
@@ -162,7 +351,7 @@ export default function IncidentsPage({ data, loading, onRefresh }) {
                 <div>
                   <p className="text-sm font-semibold text-slate-100">Add Resolution Note</p>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    {(noteTarget.service ?? '').charAt(0).toUpperCase() + (noteTarget.service ?? '').slice(1)} Service
+                    {toLabel(noteTarget.service)}
                     {noteTarget.reason && <span className="ml-1 text-slate-600">· {noteTarget.reason.replace(/_/g, ' ')}</span>}
                   </p>
                 </div>
@@ -175,8 +364,6 @@ export default function IncidentsPage({ data, loading, onRefresh }) {
 
             {/* Modal body */}
             <div className="px-5 py-4 space-y-4">
-
-              {/* Success state */}
               {noteSuccess ? (
                 <div className="flex flex-col items-center justify-center py-6 gap-3 text-center">
                   <div className="w-12 h-12 rounded-full bg-emerald-950/60 border border-emerald-700 flex items-center justify-center">
@@ -184,16 +371,16 @@ export default function IncidentsPage({ data, loading, onRefresh }) {
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-emerald-300">Note saved!</p>
-                    <p className="text-[11px] text-slate-500 mt-0.5">The resolution note has been attached to this incident.</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">The resolution note has been attached to this microservice incident.</p>
                   </div>
                 </div>
               ) : (
                 <>
-                  {/* Incident context */}
                   <div className="rounded-lg bg-slate-800/60 border border-slate-700/50 px-3 py-2.5 text-[11px] space-y-1">
                     <p className="text-slate-400">
-                      <span className="text-slate-500">Incident: </span>
+                      <span className="text-slate-500">Incident ID: </span>
                       <span className="font-mono text-slate-300">#{noteTarget.id}</span>
+                      <span className="ml-2 text-indigo-400 font-semibold">{toLabel(noteTarget.service)}</span>
                     </p>
                     {noteTarget.metric && noteTarget.value != null && (
                       <p className="text-slate-400 font-mono">
@@ -203,7 +390,6 @@ export default function IncidentsPage({ data, loading, onRefresh }) {
                     <p className="text-slate-500 font-mono text-[10px]">{noteTarget.ts}</p>
                   </div>
 
-                  {/* Developer name */}
                   <div className="space-y-1.5">
                     <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
                       <User size={11} className="text-slate-500" />
@@ -219,16 +405,15 @@ export default function IncidentsPage({ data, loading, onRefresh }) {
                     />
                   </div>
 
-                  {/* Resolution note */}
                   <div className="space-y-1.5">
                     <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
                       <FileText size={11} className="text-slate-500" />
-                      What did you do to resolve it? <span className="text-red-400">*</span>
+                      Resolution Steps Taken <span className="text-red-400">*</span>
                     </label>
                     <textarea
                       value={noteText}
                       onChange={e => setNoteText(e.target.value)}
-                      placeholder="e.g. Restarted the order-service container. Root cause was a MongoDB Atlas connection timeout after the cluster auto-paused due to inactivity."
+                      placeholder={`e.g. Restarted ${toLabel(noteTarget.service)} container. Verified database connectivity and reset fault status.`}
                       rows={4}
                       maxLength={500}
                       className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600/40 transition-colors resize-none leading-relaxed"
@@ -236,7 +421,6 @@ export default function IncidentsPage({ data, loading, onRefresh }) {
                     <p className="text-[10px] text-slate-600 text-right">{noteText.length}/500</p>
                   </div>
 
-                  {/* Error */}
                   {noteError && (
                     <div className="flex items-start gap-2 text-[11px] text-red-300 bg-red-950/30 border border-red-800/40 rounded-lg px-3 py-2">
                       <AlertTriangle size={12} className="shrink-0 mt-0.5" />
@@ -247,7 +431,6 @@ export default function IncidentsPage({ data, loading, onRefresh }) {
               )}
             </div>
 
-            {/* Modal footer */}
             {!noteSuccess && (
               <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-800 bg-slate-900/60">
                 <button onClick={closeNoteModal}
@@ -269,27 +452,6 @@ export default function IncidentsPage({ data, loading, onRefresh }) {
         </div>
       )}
 
-    </div>
-  )
-}
-
-function FilterGroup({ label, options, active, onChange, formatLabel }) {
-  return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      <span className="text-slate-500 mr-0.5">{label}:</span>
-      {options.map(opt => (
-        <button
-          key={opt}
-          onClick={() => onChange(opt)}
-          className={`px-2 py-0.5 rounded border transition-colors ${
-            active === opt
-              ? 'border-indigo-700 bg-indigo-900/50 text-indigo-300'
-              : 'border-slate-700 text-slate-400 hover:border-slate-600 hover:text-slate-300'
-          }`}
-        >
-          {formatLabel(opt)}
-        </button>
-      ))}
     </div>
   )
 }

@@ -161,6 +161,7 @@ export default function App() {
             data={data}
             loading={loading && !data}
             onRefresh={fetchData}
+            workload={workload}
           />
         )}
 

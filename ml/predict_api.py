@@ -219,6 +219,8 @@ def _load_model():
         _scaler = joblib.load(sp)
         with open(fp) as f:
             _features = json.load(f)
+        if hasattr(_model, "n_features_in_") and len(_features) != _model.n_features_in_:
+            print(f"[WARN] Feature count mismatch: model has {_model.n_features_in_}, features.json has {len(_features)}")
         print(f"[INFO] Model loaded — {len(_features)} features")
     else:
         print("[WARN] No trained model found. Rule-based fallback active.")
@@ -723,7 +725,11 @@ def feature_importances() -> list:
         ]
     imps = _model.feature_importances_
     top  = np.argsort(imps)[::-1][:10]
-    return [{"feature": _features[i], "importance": round(float(imps[i]), 4)} for i in top]
+    return [
+        {"feature": _features[i] if i < len(_features) else f"feature_{i}", "importance": round(float(imps[i]), 4)}
+        for i in top
+        if i < len(_features) or len(_features) == 0
+    ]
 
 
 def root_cause(raw: dict, workload: str = "omnistore") -> list:
@@ -2075,7 +2081,7 @@ def full_pipeline(raw: dict, workload: str = "omnistore") -> dict:
             {**event, "criticality_percentage": criticality["percentage"], "criticality_severity": criticality["severity"]}
             for event in list(FAULT_EVENTS)[-50:]
         ],
-        "incident_log":          list(INCIDENT_LOG),
+        "incident_log":          [e for e in INCIDENT_LOG if e.get("workload", "omnistore") == workload],
         "live_metrics": {
             svc: {
                 "error_rate_5xx": round(float(raw.get(f"{svc}_error_rate_5xx", 0)), 4),
@@ -2128,7 +2134,14 @@ def obs_status():
 @app.route("/incidents")
 @app.route("/api/incidents")
 def incidents():
-    return jsonify({"incidents": list(INCIDENT_LOG), "count": len(INCIDENT_LOG)})
+    workload = request.args.get("workload", "").lower()
+    service  = request.args.get("service", "").lower()
+    filtered = list(INCIDENT_LOG)
+    if workload and workload in WORKLOAD_SERVICES:
+        filtered = [e for e in filtered if e.get("workload", "omnistore") == workload]
+    if service:
+        filtered = [e for e in filtered if e.get("service", "").lower() == service]
+    return jsonify({"incidents": filtered, "count": len(filtered)})
 
 
 @app.route("/api/fault-events", methods=["POST"])
@@ -2169,8 +2182,17 @@ def fault_events():
 @app.route("/incidents/clear", methods=["POST"])
 @app.route("/api/incidents/clear", methods=["POST"])
 def clear_incidents():
-    """Clear the incident log (useful for demo resets)."""
-    INCIDENT_LOG.clear()
+    """Clear the incident log (supports optional workload or service filter)."""
+    body = request.get_json(silent=True) or {}
+    workload = request.args.get("workload") or body.get("workload")
+    service = request.args.get("service") or body.get("service")
+    global INCIDENT_LOG
+    if service:
+        INCIDENT_LOG = deque([e for e in INCIDENT_LOG if e.get("service", "").lower() != service.lower()], maxlen=200)
+    elif workload:
+        INCIDENT_LOG = deque([e for e in INCIDENT_LOG if e.get("workload", "omnistore") != workload], maxlen=200)
+    else:
+        INCIDENT_LOG.clear()
     _last_rec_fingerprint.clear()
     _save_incident_log()
     return jsonify({"status": "cleared"})

@@ -2114,7 +2114,7 @@
     "tagline": "Acclaimed Television Series",
     "overview": "This haunting series follows the Winchester brothers as they crisscross the lonely and mysterious back roads of the country in their '67 Chevy Impala, hunting down every evil supernatural force they encounter along the way.",
     "release_date": "2005-09-13",
-    "vote_average": 8.3,
+    "vote_average": 8.4,
     "vote_count": 3500,
     "runtime": 60,
     "poster_path": "https://static.tvmaze.com/uploads/images/original_untouched/445/1114097.jpg",
@@ -18234,6 +18234,82 @@
     "original_language": "en",
     "region": "Netflix Global Original",
     "is_original": true,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 8036887,
+    "imdb_id": "tt1190545",
+    "title": "Gekij\u00f4-ban D\u00f4butsu no Mori",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "A young girl moves to a village populated by anthropomorphic animals.",
+    "release_date": "2006-01-01",
+    "vote_average": 6.6,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt1190545/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt1190545/img",
+    "genres": [
+      {
+        "id": 16,
+        "name": "Animation"
+      },
+      {
+        "id": 35,
+        "name": "Comedy"
+      },
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      16,
+      35,
+      18
+    ],
+    "media_type": "movie",
+    "director": "J\u00f4ji Shimura",
+    "cast": [
+      "Yui Horie",
+      "Misato Fukuen",
+      "Fumiko Orikasa"
+    ],
+    "trailer_key": "RByDahskKiU",
+    "original_language": "hi",
+    "region": "Hindi Bollywood",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 9960910,
+    "imdb_id": "tt45048320",
+    "title": "Dune - The Real Story",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Dune - The Real Story (2026) - High-definition streaming feature presentation.",
+    "release_date": "2026-01-01",
+    "vote_average": 7.8,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BZDgyNGM3NDEtODNhYy00NWY3LTgwM2UtODE4MDNkYmFhZDNkXkEyXkFqcGc@._V1_SX250.jpg",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt45048320/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "movie",
+    "director": "Acclaimed Filmmaker",
+    "cast": [
+      "Featured Cast"
+    ],
+    "trailer_key": "8g18jFHCLXk",
+    "original_language": "en",
+    "region": "Global Cinema",
+    "is_original": false,
     "source": "LIVE_API_CINEMETA"
   }
 ]
