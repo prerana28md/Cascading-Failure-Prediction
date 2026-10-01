@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 
 import Header        from './components/Header'
 import OverviewPage  from './pages/OverviewPage'
@@ -22,6 +22,7 @@ export default function App() {
   const [loading,      setLoading]      = useState(false)
   const [autoRefresh,  setAutoRefresh]  = useState(true)
   const [riskHistory,  setRiskHistory]  = useState([])
+  const requestSequence = useRef(0)
 
   // metricHistory: { [serviceKey]: Array<{ t, time, error_rate, p99, p50, request_rate, service_up }> }
   // Each entry is a full snapshot with a timestamp so charts can show time labels
@@ -29,6 +30,7 @@ export default function App() {
 
   const handleWorkloadChange = (nextWorkload) => {
     if (nextWorkload === workload) return
+    requestSequence.current += 1
     setWorkload(nextWorkload)
     setRiskHistory([])
     setMetricHistory({})
@@ -36,8 +38,11 @@ export default function App() {
   }
 
   const fetchData = useCallback(async () => {
+    const requestId = ++requestSequence.current
     setLoading(true)
     const { data: json, error } = await fetchLiveMetrics(workload)
+
+    if (requestId !== requestSequence.current) return
 
     if (json) {
       setData(json)

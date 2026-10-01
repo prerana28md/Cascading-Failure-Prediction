@@ -51,7 +51,7 @@ export default function OverviewPage({ data, riskHistory, metricHistory, loading
           <div className="grid grid-cols-2 gap-3 mt-1 text-xs">
             <KpiCell label="Services Up"      value={loading ? '—' : `${serviceKeys.length - numDown} / ${serviceKeys.length}`} warn={numDown > 0} />
             <KpiCell label="Active Incidents" value={loading ? '—' : String(activeIncidents.length)} warn={activeIncidents.length > 0} />
-            <KpiCell label="Affected"         value={loading ? '—' : `${Math.round(criticalityPct)}%`}  warn={criticalityPct > 0} />
+            <KpiCell label="Affected"         value={loading ? '—' : `${Number(affectedPct).toFixed(1)}%`}  warn={affectedPct > 0} />
             <KpiCell label="Mean Error Rate"  value={loading ? '—' : fmtRate(data?.system?.mean_error_rate)}  warn={(data?.system?.mean_error_rate ?? 0) > 0.01} />
             <KpiCell label="Max P99 Latency"  value={loading ? '—' : fmtMs(data?.system?.max_p99_latency)}    warn={(data?.system?.max_p99_latency ?? 0) > 1} />
           </div>
@@ -65,7 +65,7 @@ export default function OverviewPage({ data, riskHistory, metricHistory, loading
           ) : (
             <div className="flex items-end gap-3">
               <span className="text-5xl font-black font-mono leading-none" style={{ color: riskColor }}>
-                {Math.round(criticalityPct)}%
+                {Number(criticalityPct).toFixed(1)}%
               </span>
               <div className="mb-1 space-y-0.5">
                 <p className="text-lg font-bold" style={{ color: riskColor }}>{riskLevel}</p>

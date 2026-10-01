@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 try:
     import predict_api as api
@@ -121,7 +122,8 @@ class FaultIntelligenceTests(unittest.TestCase):
         self.assertGreater(res_cascade["cascade_risk"], res_healthy["cascade_risk"])
 
     def test_full_pipeline_end_to_end(self):
-        pipeline_res = api.full_pipeline(self.raw)
+        with patch.object(api, "_save_incident_log"), patch.object(api, "_save_fault_events"):
+            pipeline_res = api.full_pipeline(self.raw)
         self.assertIn("prediction", pipeline_res)
         self.assertIn("cascade_risk", pipeline_res)
         self.assertIn("confidence", pipeline_res)
@@ -130,6 +132,41 @@ class FaultIntelligenceTests(unittest.TestCase):
         self.assertIn("recommendations", pipeline_res)
         self.assertIn("incident_log", pipeline_res)
         self.assertEqual(len(pipeline_res["networkx_graph"]["nodes"]), 6)
+
+    def test_full_pipeline_only_returns_current_workload_fault_events(self):
+        timestamp = datetime.now(timezone.utc).isoformat()
+        api.FAULT_EVENTS.extend([
+            {"fault_id": "omni-event", "service": "order", "fault": "DOWN", "status": "ACTIVE", "timestamp": timestamp},
+            {"fault_id": "movie-event", "service": "catalog", "fault": "DOWN", "status": "ACTIVE", "timestamp": timestamp},
+        ])
+
+        with patch.object(api, "_save_incident_log"), patch.object(api, "_save_fault_events"):
+            pipeline_res = api.full_pipeline(self.raw, workload="omnistore")
+
+        self.assertEqual({event["service"] for event in pipeline_res["fault_events"]}, {"order"})
+        self.assertEqual(pipeline_res["fault_events"][0]["active_faults"], 1)
+
+    def test_incident_history_is_scoped_by_workload(self):
+        previous_entries = api._incident_snapshot()
+        try:
+            with api.INCIDENT_LOG_LOCK:
+                api.INCIDENT_LOG.clear()
+            with patch.object(api, "_save_incident_log"):
+                api._append_incident({}, [{"service": "order", "reason": "SERVICE_DOWN"}], "HIGH", "omnistore")
+                api._append_incident({}, [{"service": "catalog", "reason": "SERVICE_DOWN"}], "HIGH", "moviestream")
+
+            self.assertEqual(
+                {entry["service"] for entry in api._incident_snapshot("omnistore")},
+                {"order"},
+            )
+            self.assertEqual(
+                {entry["service"] for entry in api._incident_snapshot("moviestream")},
+                {"catalog"},
+            )
+        finally:
+            with api.INCIDENT_LOG_LOCK:
+                api.INCIDENT_LOG.clear()
+                api.INCIDENT_LOG.extend(previous_entries)
 
     def test_5_percent_error_rate_evaluates_to_degraded_not_critical(self):
         """Verify that a 5% error rate produces MODERATE/DEGRADED and NOT CRITICAL."""
@@ -157,4 +194,3 @@ class FaultIntelligenceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

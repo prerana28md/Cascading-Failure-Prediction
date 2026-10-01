@@ -12,6 +12,7 @@ Endpoints:
 
 import json
 import os
+import threading
 import time
 import warnings
 from collections import deque
@@ -42,6 +43,7 @@ import numpy as np
 import joblib
 from flask import Flask, jsonify, request
 FAULT_EVENTS   = deque(maxlen=500)  # synchronized fault lifecycle events
+FAULT_EVENTS_LOCK = threading.RLock()
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -137,6 +139,7 @@ HISTORY        = {
     "moviestream": deque(maxlen=30),
 }   # keep 30 polls (~4 min at 8s interval) per workload
 INCIDENT_LOG   = deque(maxlen=200)  # rolling incident feed (persisted to disk)
+INCIDENT_LOG_LOCK = threading.RLock()
 
 # Path to persist incident log across restarts
 INCIDENT_LOG_PATH = os.path.join(os.path.dirname(__file__), "incident_log.json")
@@ -161,11 +164,20 @@ def _load_incident_log():
 
 def _save_incident_log():
     """Persist incident log to disk."""
-    try:
-        with open(INCIDENT_LOG_PATH, "w") as f:
-            json.dump(list(INCIDENT_LOG), f, indent=2)
-    except Exception as e:
-        print(f"[WARN] Could not save incident log: {e}")
+    with INCIDENT_LOG_LOCK:
+        try:
+            with open(INCIDENT_LOG_PATH, "w") as f:
+                json.dump(list(INCIDENT_LOG), f, indent=2)
+        except Exception as e:
+            print(f"[WARN] Could not save incident log: {e}")
+
+
+def _incident_snapshot(workload: str = None) -> list:
+    with INCIDENT_LOG_LOCK:
+        entries = [dict(entry) for entry in INCIDENT_LOG]
+    if workload is not None:
+        entries = [e for e in entries if e.get("workload", "omnistore") == workload]
+    return entries
 
 
 def _load_fault_events():
@@ -182,12 +194,18 @@ def _load_fault_events():
 
 def _save_fault_events():
     temp_path = f"{FAULT_EVENT_LOG_PATH}.tmp"
-    try:
-        with open(temp_path, "w") as f:
-            json.dump(list(FAULT_EVENTS), f, indent=2)
-        os.replace(temp_path, FAULT_EVENT_LOG_PATH)
-    except Exception as e:
-        print(f"[WARN] Could not save fault events: {e}")
+    with FAULT_EVENTS_LOCK:
+        try:
+            with open(temp_path, "w") as f:
+                json.dump(list(FAULT_EVENTS), f, indent=2)
+            os.replace(temp_path, FAULT_EVENT_LOG_PATH)
+        except Exception as e:
+            print(f"[WARN] Could not save fault events: {e}")
+
+
+def _fault_event_snapshot() -> list:
+    with FAULT_EVENTS_LOCK:
+        return [dict(event) for event in FAULT_EVENTS]
 
 
 def _utc_now():
@@ -896,64 +914,68 @@ def _append_incident(raw: dict, causes: list, risk_level: str, workload: str = "
     Auto-resolves services that were previously incident-active but now have no cause.
     Uses appendleft so index-0 is always the most recent entry.
     """
-    services = WORKLOAD_SERVICES.get(workload, SERVICES)
-    now = time.localtime()
-    ts  = time.strftime("%Y-%m-%d %H:%M:%S", now)
-    day = time.strftime("%Y-%m-%d", now)
+    with INCIDENT_LOG_LOCK:
+        services = WORKLOAD_SERVICES.get(workload, SERVICES)
+        now = time.localtime()
+        ts  = time.strftime("%Y-%m-%d %H:%M:%S", now)
+        day = time.strftime("%Y-%m-%d", now)
 
-    cause_svcs = {c["service"] for c in causes}
+        cause_svcs = {c["service"] for c in causes}
 
-    # ── Append new / changed incidents ────────────────────────────────────────
-    for c in causes:
-        svc    = c["service"]
-        reason = c["reason"]
+        # ── Append new / changed incidents ────────────────────────────────────
+        for c in causes:
+            svc    = c["service"]
+            reason = c["reason"]
 
-        # Find the most recent (index-0 first) entry for this service
-        last_for_svc = next((e for e in INCIDENT_LOG if e["service"] == svc), None)
+            # Find this workload's most recent entry for the service.
+            last_for_svc = next((
+                e for e in INCIDENT_LOG
+                if e["service"] == svc and e.get("workload", "omnistore") == workload
+            ), None)
 
-        # Skip if most recent entry for this service already has the same reason
-        if last_for_svc and last_for_svc.get("reason") == reason:
-            continue
+            # Skip if most recent entry for this service already has the same reason
+            if last_for_svc and last_for_svc.get("reason") == reason:
+                continue
 
-        INCIDENT_LOG.appendleft({
-            "ts":         ts,
-            "date":       day,
-            "service":    svc,
-            "label":      SERVICE_LABELS.get(svc, svc),
-            "reason":     reason,
-            "value":      c.get("value"),
-            "metric":     c.get("metric"),
-            "risk_level": risk_level,
-            "workload":   workload,
-            "id":         int(time.time() * 1000),
-        })
-
-    # ── Auto-resolve ──────────────────────────────────────────────────────────
-    # For every service that has a non-RESOLVED entry as its LATEST log entry,
-    # but is NOT in the current cause set → append a RESOLVED entry.
-    for svc in services:
-        if svc in cause_svcs:
-            continue   # still has an active cause — do not resolve
-
-        # Find the most recent entry for this service
-        last_for_svc = next((e for e in INCIDENT_LOG if e["service"] == svc), None)
-
-        # Only resolve if the latest entry is an active (non-RESOLVED) incident
-        if last_for_svc and last_for_svc.get("reason") not in (None, "RESOLVED"):
             INCIDENT_LOG.appendleft({
                 "ts":         ts,
                 "date":       day,
                 "service":    svc,
                 "label":      SERVICE_LABELS.get(svc, svc),
-                "reason":     "RESOLVED",
-                "value":      None,
-                "metric":     None,
-                "risk_level": "LOW",
+                "reason":     reason,
+                "value":      c.get("value"),
+                "metric":     c.get("metric"),
+                "risk_level": risk_level,
                 "workload":   workload,
-                "id":         int(time.time() * 1000) + (services.index(svc) if svc in services else 0),
+                "id":         int(time.time() * 1000),
             })
 
-    _save_incident_log()
+        # ── Auto-resolve ─────────────────────────────────────────────────────
+        # Resolve only active incidents belonging to this workload.
+        for svc in services:
+            if svc in cause_svcs:
+                continue
+
+            last_for_svc = next((
+                e for e in INCIDENT_LOG
+                if e["service"] == svc and e.get("workload", "omnistore") == workload
+            ), None)
+
+            if last_for_svc and last_for_svc.get("reason") not in (None, "RESOLVED"):
+                INCIDENT_LOG.appendleft({
+                    "ts":         ts,
+                    "date":       day,
+                    "service":    svc,
+                    "label":      SERVICE_LABELS.get(svc, svc),
+                    "reason":     "RESOLVED",
+                    "value":      None,
+                    "metric":     None,
+                    "risk_level": "LOW",
+                    "workload":   workload,
+                    "id":         int(time.time() * 1000) + (services.index(svc) if svc in services else 0),
+                })
+
+        _save_incident_log()
 
 
 def rule_based_risk(raw: dict, workload: str = "omnistore") -> tuple:
@@ -1041,7 +1063,7 @@ def _severity_for_fault(fault: str, impact: float) -> str:
 
 def _active_fault_events():
     latest = {}
-    for event in reversed(FAULT_EVENTS):
+    for event in reversed(_fault_event_snapshot()):
         service = event.get("service")
         if service and service not in latest:
             latest[service] = event
@@ -1075,7 +1097,7 @@ def criticality_analysis(raw: dict, impact: dict, workload: str = "omnistore") -
     reasons = []
     now = _utc_now()
     recent_window = [
-        event for event in FAULT_EVENTS
+        event for event in _fault_event_snapshot()
         if event.get("status") in ("ACTIVE", "INJECTED") and (now - _parse_timestamp(event.get("timestamp"))).total_seconds() <= 600 and event.get("service") in services
     ]
 
@@ -1811,8 +1833,9 @@ def intelligent_recommendations(raw: dict, causes: list, impact: dict, criticali
         })
 
     affected_services = [svc for svc, value in impact["services"].items() if value > 0 and svc in services]
+    fault_events = _fault_event_snapshot()
     repeated = {
-        svc: sum(1 for event in FAULT_EVENTS if event.get("service") == svc and event.get("status") in ("ACTIVE", "INJECTED"))
+        svc: sum(1 for event in fault_events if event.get("service") == svc and event.get("status") in ("ACTIVE", "INJECTED"))
         for svc in affected_services
     }
     cascading = len(affected_services) > 1 or len({dst for src, dst in arch_edges if src in affected_services} & set(affected_services)) > 0
@@ -1968,21 +1991,26 @@ def enrich_fault_events(raw: dict, impact: dict, criticality: dict, recommendati
     """Persist current metrics and recommendation evidence back onto synchronized events."""
     by_service = {item.get("service"): item for item in recommendations}
     changed = False
-    for event in FAULT_EVENTS:
-        service = event.get("service")
-        if service not in impact["services"]:
-            continue
-        event["criticality_percentage"] = criticality["percentage"]
-        event["severity"] = criticality["severity"]
-        event["criticality_reasons"] = criticality["reasons"]
-        event["affected_component"] = service
-        event["active_faults"] = len(_active_fault_events())
-        recommendation = by_service.get(service) or by_service.get("system")
-        if recommendation:
-            event["recommendation"] = recommendation["recommendation"]
-            event["recommendation_reason"] = recommendation["why"]
-            event["recommendation_evidence"] = recommendation["evidence"]
-        changed = True
+    with FAULT_EVENTS_LOCK:
+        active_fault_count = sum(
+            event.get("service") in impact["services"]
+            for event in _active_fault_events()
+        )
+        for event in FAULT_EVENTS:
+            service = event.get("service")
+            if service not in impact["services"]:
+                continue
+            event["criticality_percentage"] = criticality["percentage"]
+            event["severity"] = criticality["severity"]
+            event["criticality_reasons"] = criticality["reasons"]
+            event["affected_component"] = service
+            event["active_faults"] = active_fault_count
+            recommendation = by_service.get(service) or by_service.get("system")
+            if recommendation:
+                event["recommendation"] = recommendation["recommendation"]
+                event["recommendation_reason"] = recommendation["why"]
+                event["recommendation_evidence"] = recommendation["evidence"]
+            changed = True
     if changed:
         _save_fault_events()
 
@@ -2079,9 +2107,10 @@ def full_pipeline(raw: dict, workload: str = "omnistore") -> dict:
         "observability_pct":     obs_pct,
         "fault_events":          [
             {**event, "criticality_percentage": criticality["percentage"], "criticality_severity": criticality["severity"]}
-            for event in list(FAULT_EVENTS)[-50:]
-        ],
-        "incident_log":          [e for e in INCIDENT_LOG if e.get("workload", "omnistore") == workload],
+            for event in _fault_event_snapshot()
+            if event.get("service") in services
+        ][-50:],
+        "incident_log":          _incident_snapshot(workload=workload),
         "live_metrics": {
             svc: {
                 "error_rate_5xx": round(float(raw.get(f"{svc}_error_rate_5xx", 0)), 4),
@@ -2136,7 +2165,7 @@ def obs_status():
 def incidents():
     workload = request.args.get("workload", "").lower()
     service  = request.args.get("service", "").lower()
-    filtered = list(INCIDENT_LOG)
+    filtered = _incident_snapshot()
     if workload and workload in WORKLOAD_SERVICES:
         filtered = [e for e in filtered if e.get("workload", "omnistore") == workload]
     if service:
@@ -2153,8 +2182,6 @@ def fault_events_ingest():
         return jsonify({"error": "fault_id, service, fault, status and timestamp are required"}), 400
     if body["service"] not in ALL_SERVICES or str(body["fault"]).upper() not in ("NONE", "LATENCY", "ERROR", "DOWN"):
         return jsonify({"error": "invalid service or fault type"}), 400
-    if any(event.get("fault_id") == body["fault_id"] for event in FAULT_EVENTS):
-        return jsonify({"status": "duplicate", "fault_id": body["fault_id"]}), 200
     event = {
         "fault_id": str(body["fault_id"]),
         "service": body["service"],
@@ -2169,14 +2196,18 @@ def fault_events_ingest():
         "recommendation": body.get("recommendation"),
         "recommendation_reason": body.get("recommendation_reason"),
     }
-    FAULT_EVENTS.append(event)
-    _save_fault_events()
+    with FAULT_EVENTS_LOCK:
+        if any(existing.get("fault_id") == body["fault_id"] for existing in FAULT_EVENTS):
+            return jsonify({"status": "duplicate", "fault_id": body["fault_id"]}), 200
+        FAULT_EVENTS.append(event)
+        _save_fault_events()
     return jsonify({"status": "recorded", "fault_id": event["fault_id"]}), 201
 
 
 @app.route("/api/fault-events", methods=["GET"])
 def fault_events():
-    return jsonify({"events": list(FAULT_EVENTS), "count": len(FAULT_EVENTS)})
+    events = _fault_event_snapshot()
+    return jsonify({"events": events, "count": len(events)})
 
 
 @app.route("/incidents/clear", methods=["POST"])
@@ -2184,17 +2215,22 @@ def fault_events():
 def clear_incidents():
     """Clear the incident log (supports optional workload or service filter)."""
     body = request.get_json(silent=True) or {}
-    workload = request.args.get("workload") or body.get("workload")
-    service = request.args.get("service") or body.get("service")
-    global INCIDENT_LOG
-    if service:
-        INCIDENT_LOG = deque([e for e in INCIDENT_LOG if e.get("service", "").lower() != service.lower()], maxlen=200)
-    elif workload:
-        INCIDENT_LOG = deque([e for e in INCIDENT_LOG if e.get("workload", "omnistore") != workload], maxlen=200)
-    else:
-        INCIDENT_LOG.clear()
-    _last_rec_fingerprint.clear()
-    _save_incident_log()
+    workload = (request.args.get("workload") or body.get("workload") or "").lower()
+    service = (request.args.get("service") or body.get("service") or "").lower()
+    with INCIDENT_LOG_LOCK:
+        global INCIDENT_LOG
+        if service or workload:
+            INCIDENT_LOG = deque([
+                entry for entry in INCIDENT_LOG
+                if not (
+                    (not service or entry.get("service", "").lower() == service)
+                    and (not workload or entry.get("workload", "omnistore") == workload)
+                )
+            ], maxlen=200)
+        else:
+            INCIDENT_LOG.clear()
+        _last_rec_fingerprint.clear()
+        _save_incident_log()
     return jsonify({"status": "cleared"})
 
 
@@ -2218,20 +2254,15 @@ def resolve_incident():
     if not note:
         return jsonify({"error": "note is required"}), 400
 
-    # INCIDENT_LOG is a deque of dicts — find the entry by id
-    target = None
-    for entry in INCIDENT_LOG:
-        if str(entry.get("id")) == str(incident_id):
-            target = entry
-            break
+    with INCIDENT_LOG_LOCK:
+        target = next((entry for entry in INCIDENT_LOG if str(entry.get("id")) == str(incident_id)), None)
+        if target is None:
+            return jsonify({"error": f"Incident {incident_id} not found"}), 404
 
-    if target is None:
-        return jsonify({"error": f"Incident {incident_id} not found"}), 404
-
-    target["resolved_by"] = resolved_by
-    target["resolution_note"] = note
-    target["resolution_ts"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-    _save_incident_log()
+        target["resolved_by"] = resolved_by
+        target["resolution_note"] = note
+        target["resolution_ts"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        _save_incident_log()
 
     return jsonify({"status": "ok", "incident": target})
 
