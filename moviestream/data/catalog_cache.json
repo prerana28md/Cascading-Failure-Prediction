@@ -315,7 +315,7 @@
     "tagline": "Now Streaming in 4K Ultra HD",
     "overview": "The sounds as witnesses. They blur into memories, half-dreams, it is undecided if they are real or not. Fluctuation between imagination and reality. Rocking pictures in the mind, pulsating dark emotions.",
     "release_date": "2020-01-01",
-    "vote_average": 7.7,
+    "vote_average": 6.5,
     "vote_count": 2400,
     "runtime": 135,
     "poster_path": "https://images.metahub.space/poster/small/tt12451788/img",
@@ -2843,39 +2843,32 @@
     "source": "LIVE_API_TVMAZE"
   },
   {
-    "id": 3517105,
+    "id": 9395456,
     "imdb_id": "tt26439764",
-    "title": "Kantara A Legend: Chapter 1",
+    "title": "Kantara: A Legend - Chapter 1",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "Exploring the origins of Kaadubettu Shiva during the Kadamba dynasty era, it delves into the untamed wilderness and forgotten lore surrounding his past.",
+    "overview": "Kantara: A Legend - Chapter 1 (2025) - High-definition streaming feature presentation.",
     "release_date": "2025-01-01",
-    "vote_average": 8.5,
+    "vote_average": 7.8,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://images.metahub.space/poster/small/tt26439764/img",
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BNDU2ZTYxYTMtMjhlZC00ZjEwLThhNDUtMzdlNWM4ZDcyYTM1XkEyXkFqcGc@._V1_SX250.jpg",
     "backdrop_path": "https://images.metahub.space/background/medium/tt26439764/img",
     "genres": [
       {
-        "id": 28,
-        "name": "Action"
-      },
-      {
-        "id": 53,
-        "name": "Thriller"
+        "id": 18,
+        "name": "Drama"
       }
     ],
     "genre_ids": [
-      28,
-      53
+      18
     ],
     "media_type": "movie",
-    "director": "Rishab Shetty",
+    "director": "Acclaimed Filmmaker",
     "cast": [
-      "Rishab Shetty",
-      "Sapthami Gowda",
-      "Sriram Reddy Polasane"
+      "Featured Cast"
     ],
-    "trailer_key": "TMQUFhWm8C0",
+    "trailer_key": "M2OnifMgvps",
     "original_language": "kn",
     "region": "Kannada Sandalwood",
     "is_original": false,
@@ -4066,17 +4059,17 @@
     "source": "LIVE_API_CINEMETA"
   },
   {
-    "id": 9332445,
-    "imdb_id": "tt16227370",
+    "id": 7269494,
+    "imdb_id": "tt14244714",
     "title": "Pushpaka Vimanam",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "Pushpaka Vimanam (2024) - High-definition streaming feature presentation.",
-    "release_date": "2024-01-01",
+    "overview": "Pushpaka Vimanam (2021) - High-definition streaming feature presentation.",
+    "release_date": "2021-01-01",
     "vote_average": 7.8,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://m.media-amazon.com/images/M/MV5BNWE0OWY4OWItN2Q3Mi00OTNkLTg1NTQtYjNjM2IyMWE1OWY3XkEyXkFqcGc@._V1_SX250.jpg",
-    "backdrop_path": "https://images.metahub.space/background/medium/tt16227370/img",
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BNjg3ZTRhMDYtYjRkYi00NjFmLTlhNGUtNjU1OTNhOGU3ZjFjXkEyXkFqcGc@._V1_SX250.jpg",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt14244714/img",
     "genres": [
       {
         "id": 18,
@@ -4395,7 +4388,7 @@
     "vote_average": 7.8,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://m.media-amazon.com/images/M/MV5BODM1OTM2ZjUtMmQ3ZS00MmYwLWJiMTgtODY0Mjg5ZjgzYjJlXkEyXkFqcGc@._V1_SX250.jpg",
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BZTg1ZDE0NzEtZDgyYS00MzAxLWEyNDUtOTYxZDA3Yzk2YjZlXkEyXkFqcGc@._V1_SX250.jpg",
     "backdrop_path": "https://images.metahub.space/background/medium/tt0096028/img",
     "genres": [
       {
@@ -4610,17 +4603,17 @@
     "source": "LIVE_API_CINEMETA"
   },
   {
-    "id": 9921600,
-    "imdb_id": "tt0316154",
+    "id": 9885411,
+    "imdb_id": "tt23461428",
     "title": "Lal Salaam",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "Lal Salaam (2002) - High-definition streaming feature presentation.",
-    "release_date": "2002-01-01",
+    "overview": "Lal Salaam (2024) - High-definition streaming feature presentation.",
+    "release_date": "2024-01-01",
     "vote_average": 7.8,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://m.media-amazon.com/images/M/MV5BYTI2MWFkN2YtNzNkMC00MWQ0LTk5ZjItODM4Yjg4MGI0Njg0XkEyXkFqcGc@._V1_SX250.jpg",
-    "backdrop_path": "https://images.metahub.space/background/medium/tt0316154/img",
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BMzhmYjMwNjYtMjI1NS00NmY2LTkyMWItODdhOTc5NWRkYmI5XkEyXkFqcGc@._V1_SX250.jpg",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt23461428/img",
     "genres": [
       {
         "id": 18,
@@ -4866,17 +4859,17 @@
     "source": "LIVE_API_CINEMETA"
   },
   {
-    "id": 5673644,
-    "imdb_id": "tt9624438",
+    "id": 8197933,
+    "imdb_id": "tt0246456",
     "title": "Bazaar",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "Bazaar (2019) - High-definition streaming feature presentation.",
-    "release_date": "2019-01-01",
+    "overview": "Bazaar (1982) - High-definition streaming feature presentation.",
+    "release_date": "1982-01-01",
     "vote_average": 7.8,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://m.media-amazon.com/images/M/MV5BZDk3MTdmOGMtNzUxZS00YzcwLWI3MDItMTRlYWQ5ZTEwNmY2XkEyXkFqcGc@._V1_SX250.jpg",
-    "backdrop_path": "https://images.metahub.space/background/medium/tt9624438/img",
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BNjEwOTIyMDI0OV5BMl5BanBnXkFtZTgwMTk3ODM3NDE@._V1_SX250.jpg",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt0246456/img",
     "genres": [
       {
         "id": 18,
@@ -5538,17 +5531,17 @@
     "source": "LIVE_API_CINEMETA"
   },
   {
-    "id": 7394037,
-    "imdb_id": "tt0140303",
+    "id": 8674351,
+    "imdb_id": "tt0347303",
     "title": "Kalki",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "Kalki (1996) - High-definition streaming feature presentation.",
-    "release_date": "1996-01-01",
+    "overview": "Kalki (1984) - High-definition streaming feature presentation.",
+    "release_date": "1984-01-01",
     "vote_average": 7.8,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://m.media-amazon.com/images/M/MV5BZjU2YThmNWMtMWJlNy00ODU0LTljZTUtMTZhNzdmOTljNDg5XkEyXkFqcGc@._V1_SX250.jpg",
-    "backdrop_path": "https://images.metahub.space/background/medium/tt0140303/img",
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BZmRmMmZmMjQtZTQ3Yi00MjJhLThhNDktZDg5NGU3NjUyZGRiXkEyXkFqcGc@._V1_SX250.jpg",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt0347303/img",
     "genres": [
       {
         "id": 18,
@@ -5966,17 +5959,17 @@
     "source": "LIVE_API_CINEMETA"
   },
   {
-    "id": 2690831,
-    "imdb_id": "tt14677474",
+    "id": 4057487,
+    "imdb_id": "tt1364202",
     "title": "Devara Makkalu",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "Devara Makkalu (2003) - High-definition streaming feature presentation.",
-    "release_date": "2003-01-01",
+    "overview": "Devara Makkalu (1970) - High-definition streaming feature presentation.",
+    "release_date": "1970-01-01",
     "vote_average": 7.8,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://images.metahub.space/poster/small/tt14677474/img",
-    "backdrop_path": "https://images.metahub.space/background/medium/tt14677474/img",
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BMTJmMTNmNDYtNDM0OS00NDMzLWJmZGUtNzc3Y2Q4N2UyOTg3XkEyXkFqcGc@._V1_SX250.jpg",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt1364202/img",
     "genres": [
       {
         "id": 18,
@@ -6775,7 +6768,7 @@
     "vote_average": 7.8,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://m.media-amazon.com/images/M/MV5BMjg3N2ExODItMGRiNS00ODk2LWI2MTMtNDFmNDVlYzZkNjVkXkEyXkFqcGc@._V1_SX250.jpg",
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BYmEyNGM2MGUtODczOC00ZTI4LWIxOTgtNzAxNzllY2ExN2YwXkEyXkFqcGc@._V1_SX250.jpg",
     "backdrop_path": "https://images.metahub.space/background/medium/tt0309005/img",
     "genres": [
       {
@@ -6834,26 +6827,28 @@
     "imdb_id": "tt2123232",
     "title": "Mar Jawan Gur Khake",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "Mar Jawan Gur Khake (2010) - High-definition streaming feature presentation.",
+    "overview": "Text \" Plot Edit Jimmy (Jimmy Sharma) and Rocky (Tarun Khanna) are two enemies who are involved in fights/brawls daily. They both fall in love with Mahek (Gunjan Walia) who is already in love with a secret-gangster Karan (Aman Ver...",
     "release_date": "2010-01-01",
-    "vote_average": 7.8,
+    "vote_average": 6.0,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://m.media-amazon.com/images/M/MV5BZjViYTUxMjItNjQwOS00OTkyLTgzNWEtZDA5ZWIxNWUwZTZjXkEyXkFqcGc@._V1_SX250.jpg",
+    "poster_path": "https://images.metahub.space/poster/small/tt2123232/img",
     "backdrop_path": "https://images.metahub.space/background/medium/tt2123232/img",
     "genres": [
       {
-        "id": 18,
-        "name": "Drama"
+        "id": 35,
+        "name": "Comedy"
       }
     ],
     "genre_ids": [
-      18
+      35
     ],
     "media_type": "movie",
-    "director": "Acclaimed Filmmaker",
+    "director": "Aditya Sood",
     "cast": [
-      "Featured Cast"
+      "Tarun Khanna",
+      "Jimmy Sharma",
+      "Gunjan Walia"
     ],
     "trailer_key": "COv52Qyctws",
     "original_language": "hi",
@@ -7189,32 +7184,39 @@
     "source": "LIVE_API_CINEMETA"
   },
   {
-    "id": 8173870,
-    "imdb_id": "tt0204824",
+    "id": 1795658,
+    "imdb_id": "tt0047834",
     "title": "Animal Farm",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "Animal Farm (1999) - High-definition streaming feature presentation.",
-    "release_date": "1999-01-01",
-    "vote_average": 7.8,
+    "overview": "A successful farmyard revolution by the resident animals vs. the farmer goes horribly wrong when the victors create a new tyranny among themselves.",
+    "release_date": "1959-01-01",
+    "vote_average": 7.2,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://m.media-amazon.com/images/M/MV5BMmQ2Mjg4ZjYtYzNhOS00MDcyLTk3YTctMTM4MzdmYmE4YzA3XkEyXkFqcGc@._V1_SX250.jpg",
-    "backdrop_path": "https://images.metahub.space/background/medium/tt0204824/img",
+    "poster_path": "https://images.metahub.space/poster/small/tt0047834/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt0047834/img",
     "genres": [
+      {
+        "id": 16,
+        "name": "Animation"
+      },
       {
         "id": 18,
         "name": "Drama"
       }
     ],
     "genre_ids": [
+      16,
       18
     ],
     "media_type": "movie",
-    "director": "Acclaimed Filmmaker",
+    "director": "Joy Batchelor",
     "cast": [
-      "Featured Cast"
+      "Gordon Heath",
+      "Maurice Denham",
+      "Gilles Cheslton"
     ],
-    "trailer_key": "Dydmpfo68DA",
+    "trailer_key": "YGCo5Tva39s",
     "original_language": "hi",
     "region": "Hindi Bollywood",
     "is_original": false,
@@ -7385,28 +7387,40 @@
     "imdb_id": "tt16606592",
     "title": "The Animal Kingdom",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "The Animal Kingdom (2023) - High-definition streaming feature presentation.",
-    "release_date": "2023-01-01",
-    "vote_average": 7.8,
+    "overview": "An adventure between a father and his son, in a world where some humans have started mutating into other animal species.",
+    "release_date": "2024-01-01",
+    "vote_average": 6.7,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://m.media-amazon.com/images/M/MV5BNjYyMDI5MWYtMmRlZi00N2U4LWFmY2YtZDEzODhiNDEyNGYzXkEyXkFqcGc@._V1_SX250.jpg",
+    "poster_path": "https://images.metahub.space/poster/small/tt16606592/img",
     "backdrop_path": "https://images.metahub.space/background/medium/tt16606592/img",
     "genres": [
       {
+        "id": 12,
+        "name": "Adventure"
+      },
+      {
         "id": 18,
         "name": "Drama"
+      },
+      {
+        "id": 14,
+        "name": "Fantasy"
       }
     ],
     "genre_ids": [
-      18
+      12,
+      18,
+      14
     ],
     "media_type": "movie",
-    "director": "Acclaimed Filmmaker",
+    "director": "Thomas Cailley",
     "cast": [
-      "Featured Cast"
+      "Romain Duris",
+      "Paul Kircher",
+      "Ad\u00e8le Exarchopoulos"
     ],
-    "trailer_key": "Dydmpfo68DA",
+    "trailer_key": "nWAJXTcEEOU",
     "original_language": "hi",
     "region": "Hindi Bollywood",
     "is_original": false,
@@ -7477,17 +7491,17 @@
     "source": "LIVE_API_CINEMETA"
   },
   {
-    "id": 1228276,
-    "imdb_id": "tt4155534",
+    "id": 8722973,
+    "imdb_id": "tt0020640",
     "title": "Animal Crackers",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "Animal Crackers (2017) - High-definition streaming feature presentation.",
-    "release_date": "2017-01-01",
+    "overview": "Animal Crackers (1930) - High-definition streaming feature presentation.",
+    "release_date": "1930-01-01",
     "vote_average": 7.8,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://m.media-amazon.com/images/M/MV5BMjdkYWM1NTctYzBlYS00MzZiLWFhODQtYzZmNmVlYmRkMDU0XkEyXkFqcGc@._V1_SX250.jpg",
-    "backdrop_path": "https://images.metahub.space/background/medium/tt4155534/img",
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BM2E2YmUyNTktM2Q3Yy00M2ViLWJlNzAtMjEwZDgzZTI0YzI1XkEyXkFqcGc@._V1_SX250.jpg",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt0020640/img",
     "genres": [
       {
         "id": 18,
@@ -7509,17 +7523,17 @@
     "source": "LIVE_API_CINEMETA"
   },
   {
-    "id": 4708635,
-    "imdb_id": "tt0255798",
+    "id": 3965149,
+    "imdb_id": "tt3257336",
     "title": "The Animal",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "The Animal (2001) - High-definition streaming feature presentation.",
-    "release_date": "2001-01-01",
+    "overview": "The Animal (1976) - High-definition streaming feature presentation.",
+    "release_date": "1976-01-01",
     "vote_average": 7.8,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://m.media-amazon.com/images/M/MV5BZDc4MjZhNDMtMmZhOS00ZmQ4LTk4YzAtN2Q1Njc5ZGM5MzMyXkEyXkFqcGc@._V1_SX250.jpg",
-    "backdrop_path": "https://images.metahub.space/background/medium/tt0255798/img",
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BNGQ1ZjYxOTUtMTQxMy00YTVmLWJmNTQtNjEzOGJjMDQyNDAwXkEyXkFqcGc@._V1_SX250.jpg",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt3257336/img",
     "genres": [
       {
         "id": 18,
@@ -7868,17 +7882,17 @@
     "source": "LIVE_API_CINEMETA"
   },
   {
-    "id": 9562886,
-    "imdb_id": "tt0247373",
+    "id": 1531883,
+    "imdb_id": "tt0248818",
     "title": "Garuda Garvabhangam",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "Garuda Garvabhangam (1929) - High-definition streaming feature presentation.",
-    "release_date": "1929-01-01",
+    "overview": "Garuda Garvabhangam (1936) - High-definition streaming feature presentation.",
+    "release_date": "1936-01-01",
     "vote_average": 7.8,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://images.metahub.space/poster/small/tt0247373/img",
-    "backdrop_path": "https://images.metahub.space/background/medium/tt0247373/img",
+    "poster_path": "https://images.metahub.space/poster/small/tt0248818/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt0248818/img",
     "genres": [
       {
         "id": 18,
@@ -8149,28 +8163,30 @@
     "imdb_id": "tt1935156",
     "title": "Jodorowsky's Dune",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "Jodorowsky's Dune (2013) - High-definition streaming feature presentation.",
-    "release_date": "2013-01-01",
-    "vote_average": 7.8,
+    "overview": "The story of cult film director Alejandro Jodorowsky's ambitious but ultimately doomed film adaptation of the seminal science fiction novel.",
+    "release_date": "2016-01-01",
+    "vote_average": 8.0,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://m.media-amazon.com/images/M/MV5BMTU0MzcxMTAxMl5BMl5BanBnXkFtZTgwODMyMTIxMTE@._V1_SX250.jpg",
+    "poster_path": "https://images.metahub.space/poster/small/tt1935156/img",
     "backdrop_path": "https://images.metahub.space/background/medium/tt1935156/img",
     "genres": [
       {
-        "id": 18,
-        "name": "Drama"
+        "id": 99,
+        "name": "Documentary"
       }
     ],
     "genre_ids": [
-      18
+      99
     ],
     "media_type": "movie",
-    "director": "Acclaimed Filmmaker",
+    "director": "Frank Pavich",
     "cast": [
-      "Featured Cast"
+      "Alejandro Jodorowsky",
+      "Michel Seydoux",
+      "H.R. Giger"
     ],
-    "trailer_key": "8g18jFHCLXk",
+    "trailer_key": "Q-oBEGF7uwE",
     "original_language": "en",
     "region": "Global Cinema",
     "is_original": false,
@@ -8341,12 +8357,12 @@
     "imdb_id": "tt2251648",
     "title": "The Dune",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "The Dune (2013) - High-definition streaming feature presentation.",
-    "release_date": "2013-01-01",
-    "vote_average": 7.8,
+    "overview": "An israeli man, who recently broke up with his girlfriend, gets to Paris and starts to follow a soon-to-be retired detective for a mysterious reason.",
+    "release_date": "2014-01-01",
+    "vote_average": 6.8,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://m.media-amazon.com/images/M/MV5BNTY5NWNmNzYtZGY1OC00YjIzLWJjZTYtZGExY2QzMzM0ODFjXkEyXkFqcGc@._V1_SX250.jpg",
+    "poster_path": "https://images.metahub.space/poster/small/tt2251648/img",
     "backdrop_path": "https://images.metahub.space/background/medium/tt2251648/img",
     "genres": [
       {
@@ -8358,11 +8374,13 @@
       18
     ],
     "media_type": "movie",
-    "director": "Acclaimed Filmmaker",
+    "director": "Yossi Aviram",
     "cast": [
-      "Featured Cast"
+      "Niels Arestrup",
+      "Lior Ashkenazi",
+      "Guy Marchand"
     ],
-    "trailer_key": "8g18jFHCLXk",
+    "trailer_key": "0SIJqwkLuKw",
     "original_language": "en",
     "region": "Global Cinema",
     "is_original": false,
@@ -9087,8 +9105,8 @@
     "title": "The End",
     "tagline": "Now Streaming in 4K Ultra HD",
     "overview": "In a luxurious bunker, a family maintains their pre-apocalyptic routines 25 years after Earth's ecological disaster made the surface uninhabitable.",
-    "release_date": "2024-01-01",
-    "vote_average": 5.4,
+    "release_date": "2025-01-01",
+    "vote_average": 5.3,
     "vote_count": 2400,
     "runtime": 135,
     "poster_path": "https://images.metahub.space/poster/small/tt15551346/img",
@@ -9131,7 +9149,7 @@
     "tagline": "Now Streaming in 4K Ultra HD",
     "overview": "A single mistake in the past, by a time travel company in the future, has devastating and unforeseen consequences.",
     "release_date": "2005-01-01",
-    "vote_average": 4.2,
+    "vote_average": 4.3,
     "vote_count": 2400,
     "runtime": 135,
     "poster_path": "https://images.metahub.space/poster/small/tt0318081/img",
@@ -9175,7 +9193,7 @@
     "tagline": "Now Streaming in 4K Ultra HD",
     "overview": "At an absurdly self-indulgent student film festival, the directors of the (mostly terrible) short films start getting killed off one by one and a budding British documentary filmmaker decides to investigate.",
     "release_date": "1999-01-01",
-    "vote_average": 4.8,
+    "vote_average": 4.9,
     "vote_count": 2400,
     "runtime": 135,
     "poster_path": "https://images.metahub.space/poster/small/tt0159259/img",
@@ -9250,7 +9268,7 @@
       "Stana Katic",
       "Alessandra Mastronardi"
     ],
-    "trailer_key": "sTRcztA1nME",
+    "trailer_key": "ZaSfViL75lA",
     "original_language": "en",
     "region": "Global Cinema",
     "is_original": false,
@@ -9341,7 +9359,7 @@
     "tagline": "Now Streaming in 4K Ultra HD",
     "overview": "Jason Kirby and Vickie Evans encounter something other than paradise when their tropical vacation unwittingly meets up with a terrorist force. Soon a quiet romantic getaway has turned into a highstakes thriller of life and death.",
     "release_date": "1991-01-01",
-    "vote_average": 4.9,
+    "vote_average": 4.8,
     "vote_count": 2400,
     "runtime": 135,
     "poster_path": "https://images.metahub.space/poster/small/tt0100766/img",
@@ -9506,28 +9524,30 @@
     "imdb_id": "tt4415360",
     "title": "The Science of Interstellar",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "The Science of Interstellar (2014) - High-definition streaming feature presentation.",
-    "release_date": "2014-01-01",
-    "vote_average": 7.8,
+    "overview": "The Science of Christopher Nolan's Sci-Fi, Interstellar.",
+    "release_date": "2015-01-01",
+    "vote_average": 7.1,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://m.media-amazon.com/images/M/MV5BZDU5NTJkMjQtNGYyZC00NjYwLWJlNWMtODk5NDI5MDE3NDJiXkEyXkFqcGc@._V1_SX250.jpg",
+    "poster_path": "https://images.metahub.space/poster/small/tt4415360/img",
     "backdrop_path": "https://images.metahub.space/background/medium/tt4415360/img",
     "genres": [
       {
-        "id": 18,
-        "name": "Drama"
+        "id": 99,
+        "name": "Documentary"
       }
     ],
     "genre_ids": [
-      18
+      99
     ],
     "media_type": "movie",
-    "director": "Acclaimed Filmmaker",
+    "director": "Gail Willumsen",
     "cast": [
-      "Featured Cast"
+      "Matthew McConaughey",
+      "Kip Thorne",
+      "Christopher Nolan"
     ],
-    "trailer_key": "zSWdZVtXT7E",
+    "trailer_key": "7yxaUi8LIzE",
     "original_language": "en",
     "region": "Global Cinema",
     "is_original": false,
@@ -9666,28 +9686,30 @@
     "imdb_id": "tt8269586",
     "title": "Bikini Inception",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "Bikini Inception (2015) - High-definition streaming feature presentation.",
-    "release_date": "2015-01-01",
-    "vote_average": 7.8,
+    "overview": "Two Arctic Lab janitors perform unauthorized experiments transporting them to Malibu California with beautiful girls and a Brazilian PhD Student.",
+    "release_date": "2017-01-01",
+    "vote_average": 4.4,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://m.media-amazon.com/images/M/MV5BMWFhNWE4ZGEtYjkyNC00ODE0LTk4ZjQtNDU4NzU4NzEyNTZlXkEyXkFqcGc@._V1_SX250.jpg",
+    "poster_path": "https://images.metahub.space/poster/small/tt8269586/img",
     "backdrop_path": "https://images.metahub.space/background/medium/tt8269586/img",
     "genres": [
       {
-        "id": 18,
-        "name": "Drama"
+        "id": 35,
+        "name": "Comedy"
       }
     ],
     "genre_ids": [
-      18
+      35
     ],
     "media_type": "movie",
-    "director": "Acclaimed Filmmaker",
+    "director": "John Sjogren",
     "cast": [
-      "Featured Cast"
+      "Michael Madsen",
+      "Ana Flavia Gavlak",
+      "Alena Savostikova"
     ],
-    "trailer_key": "YoHD9XEInc0",
+    "trailer_key": "cxnpvxRpPxE",
     "original_language": "en",
     "region": "Global Cinema",
     "is_original": false,
@@ -10148,7 +10170,7 @@
     "tagline": "Now Streaming in 4K Ultra HD",
     "overview": "That \"Merc with a Mouth\" just can't. stop. singing. Join the R-rated, NSFW musical mayhem as our singing hero, Deadpool, slays his way through a series of Disney songs and superhero teams, from the X-Men to the Avengers and more, ...",
     "release_date": "2018-01-01",
-    "vote_average": 8.5,
+    "vote_average": 8.2,
     "vote_count": 2400,
     "runtime": 135,
     "poster_path": "https://images.metahub.space/poster/small/tt8686240/img",
@@ -10223,17 +10245,17 @@
     "source": "LIVE_API_CINEMETA"
   },
   {
-    "id": 5834884,
-    "imdb_id": "tt0757207",
+    "id": 8919005,
+    "imdb_id": "tt34870598",
     "title": "Gladiator",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "Gladiator (2004) - High-definition streaming feature presentation.",
-    "release_date": "2004-01-01",
+    "overview": "Gladiator (2022) - High-definition streaming feature presentation.",
+    "release_date": "2022-01-01",
     "vote_average": 7.8,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://images.metahub.space/poster/small/tt0757207/img",
-    "backdrop_path": "https://images.metahub.space/background/medium/tt0757207/img",
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BMjFmZDkwOTItZWEzZS00Njc3LTllNTgtZDFkMmU5YTBhMDIyXkEyXkFqcGc@._V1_SX250.jpg",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt34870598/img",
     "genres": [
       {
         "id": 18,
@@ -10319,17 +10341,17 @@
     "source": "LIVE_API_CINEMETA"
   },
   {
-    "id": 5330425,
-    "imdb_id": "tt0030186",
+    "id": 1185982,
+    "imdb_id": "tt0091121",
     "title": "The Gladiator",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "The Gladiator (1938) - High-definition streaming feature presentation.",
-    "release_date": "1938-01-01",
+    "overview": "The Gladiator (1986) - High-definition streaming feature presentation.",
+    "release_date": "1986-01-01",
     "vote_average": 7.8,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://m.media-amazon.com/images/M/MV5BY2MxNTQxODAtNjQ4My00ZDg4LTk2M2ItODUxMGM4YjYyYjI5XkEyXkFqcGc@._V1_SX250.jpg",
-    "backdrop_path": "https://images.metahub.space/background/medium/tt0030186/img",
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BMjdjMDBkMzgtZDhkYi00OWM2LWJkNzgtODM0NDVjMmU4OTdkXkEyXkFqcGc@._V1_SX250.jpg",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt0091121/img",
     "genres": [
       {
         "id": 18,
@@ -10611,26 +10633,38 @@
     "imdb_id": "tt1439532",
     "title": "Gladiator Games",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "Gladiator Games (2010) - High-definition streaming feature presentation.",
+    "overview": "In a distant time and place, power is decided by a cruel game in which two teams of gladiators fight in a vast arena.",
     "release_date": "2010-01-01",
-    "vote_average": 7.8,
+    "vote_average": 4.2,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://m.media-amazon.com/images/M/MV5BMTQ4MzcwODk4NV5BMl5BanBnXkFtZTcwNzMzNTM4Ng@@._V1_SX250.jpg",
+    "poster_path": "https://images.metahub.space/poster/small/tt1439532/img",
     "backdrop_path": "https://images.metahub.space/background/medium/tt1439532/img",
     "genres": [
       {
-        "id": 18,
-        "name": "Drama"
+        "id": 28,
+        "name": "Action"
+      },
+      {
+        "id": 12,
+        "name": "Adventure"
+      },
+      {
+        "id": 14,
+        "name": "Fantasy"
       }
     ],
     "genre_ids": [
-      18
+      28,
+      12,
+      14
     ],
     "media_type": "movie",
-    "director": "Acclaimed Filmmaker",
+    "director": "Stefano Milla",
     "cast": [
-      "Featured Cast"
+      "Francesco Chinchella",
+      "Suzi Lorraine",
+      "Maurizio Corigliano"
     ],
     "trailer_key": "P5ieIbInFpg",
     "original_language": "en",
@@ -10739,28 +10773,35 @@
     "imdb_id": "tt0056027",
     "title": "The Invincible Gladiator",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "The Invincible Gladiator (1961) - High-definition streaming feature presentation.",
+    "overview": "A Roman warrior leads a revolt against an evil ruler.",
     "release_date": "1961-01-01",
-    "vote_average": 7.8,
+    "vote_average": 5.4,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://m.media-amazon.com/images/M/MV5BMjkwY2MxZTktY2ViOC00M2I4LTg5M2ItNDdiNGZmNjZlZTM1XkEyXkFqcGc@._V1_SX250.jpg",
+    "poster_path": "https://images.metahub.space/poster/small/tt0056027/img",
     "backdrop_path": "https://images.metahub.space/background/medium/tt0056027/img",
     "genres": [
+      {
+        "id": 28,
+        "name": "Action"
+      },
       {
         "id": 18,
         "name": "Drama"
       }
     ],
     "genre_ids": [
+      28,
       18
     ],
     "media_type": "movie",
-    "director": "Acclaimed Filmmaker",
+    "director": "Alberto De Martino",
     "cast": [
-      "Featured Cast"
+      "Richard Harrison",
+      "Isabelle Corey",
+      "Livio Lorenzon"
     ],
-    "trailer_key": "P5ieIbInFpg",
+    "trailer_key": "7YU5DsmAgak",
     "original_language": "en",
     "region": "Global Cinema",
     "is_original": false,
@@ -10813,7 +10854,7 @@
     "tagline": "Now Streaming in 4K Ultra HD",
     "overview": "The god Dionysus decides to pay a visit to the city of Thebes.",
     "release_date": "1961-01-01",
-    "vote_average": 5.2,
+    "vote_average": 5.3,
     "vote_count": 2400,
     "runtime": 135,
     "poster_path": "https://images.metahub.space/poster/small/tt0054650/img",
@@ -10856,7 +10897,7 @@
     "title": "Gladiators of Rome",
     "tagline": "Now Streaming in 4K Ultra HD",
     "overview": "From Rainbow S.p.A. and Paramount Pictures comes a hilarious, animated adventure of epic proportions. Timo, a student at the Gladiators' Academy in Rome, has no desire to become a legendary gladiator like his stepfather. That is, ...",
-    "release_date": "2012-01-01",
+    "release_date": "2014-01-01",
     "vote_average": 5.2,
     "vote_count": 2400,
     "runtime": 135,
@@ -10901,7 +10942,7 @@
     "tagline": "Now Streaming in 4K Ultra HD",
     "overview": "Some time in the future, East and West have stopped maintaining standing armies and nuclear weapons. Instead, to settle their differences they pit different teams of crack combat specialists against each other.",
     "release_date": "1969-01-01",
-    "vote_average": 6.7,
+    "vote_average": 6.6,
     "vote_count": 2400,
     "runtime": 135,
     "poster_path": "https://images.metahub.space/poster/small/tt0064371/img",
@@ -10939,7 +10980,7 @@
     "title": "Kingdom of Gladiators: The Tournament",
     "tagline": "Now Streaming in 4K Ultra HD",
     "overview": "A Templar Knight is forced to fight as a gladiator where challengers from different worlds duel in a quest for a magical sword. Forced to fight his greedy master, he must team with his adversaries against the master and his discip...",
-    "release_date": "2017-01-01",
+    "release_date": "2018-01-01",
     "vote_average": 4.0,
     "vote_count": 2400,
     "runtime": 135,
@@ -10984,7 +11025,7 @@
     "tagline": "Now Streaming in 4K Ultra HD",
     "overview": "Framed for the escape of five gladiators from the arena, the son of one of Sparta's leading citizens is sentenced to the arena as gladiator himself and forced to fight for his life in the Roman Colosseum. Years later he manages to...",
     "release_date": "1962-01-01",
-    "vote_average": 5.3,
+    "vote_average": 5.4,
     "vote_count": 2400,
     "runtime": 135,
     "poster_path": "https://images.metahub.space/poster/small/tt0056472/img",
@@ -12029,7 +12070,7 @@
     "imdb_id": "tt0115151",
     "title": "Dark Skies",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "In 1960s America, a young couple struggles to expose the truth about a hidden alien invasion, while a secret government organization follows its own agenda in dealing with the threat.",
+    "overview": "In 1960s America, a young couple runs from a secret government agency while fighting an alien presence known as the Hive.",
     "release_date": "1996-01-01",
     "vote_average": 7.5,
     "vote_count": 2400,
@@ -12416,7 +12457,7 @@
     "tagline": "Now Streaming in 4K Ultra HD",
     "overview": "A drug lady that rules a tight house and will kill or have someone slaughtered without getting her hands dirty.",
     "release_date": "2021-01-01",
-    "vote_average": 6.8,
+    "vote_average": 6.7,
     "vote_count": 2400,
     "runtime": 135,
     "poster_path": "https://images.metahub.space/poster/small/tt14321632/img",
@@ -12454,39 +12495,34 @@
     "source": "LIVE_API_CINEMETA"
   },
   {
-    "id": 1331006,
-    "imdb_id": "tt1365539",
+    "id": 2924834,
+    "imdb_id": "tt6558110",
     "title": "The Queen",
     "tagline": "Now Streaming in 4K Ultra HD",
-    "overview": "This docudrama focuses on five key events in the reign of Queen Elizabeth II. Combining narration, interviews, archival footage and dramatic recreations (with 5 different actresses portraying the Queen at different times in her li...",
-    "release_date": "2009-01-01",
-    "vote_average": 7.2,
+    "overview": "The Queen (2016) - High-definition streaming feature presentation.",
+    "release_date": "2016-01-01",
+    "vote_average": 7.9,
     "vote_count": 2400,
     "runtime": 135,
-    "poster_path": "https://images.metahub.space/poster/small/tt1365539/img",
-    "backdrop_path": "https://images.metahub.space/background/medium/tt1365539/img",
+    "poster_path": "https://images.metahub.space/poster/small/tt6558110/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt6558110/img",
     "genres": [
       {
         "id": 18,
         "name": "Drama"
-      },
-      {
-        "id": 36,
-        "name": "History"
       }
     ],
     "genre_ids": [
-      18,
-      36
+      18
     ],
     "media_type": "series",
     "director": "Acclaimed Filmmaker",
     "cast": [
-      "Steven Mackintosh",
-      "Samantha Bond",
-      "Emilia Fox"
+      "Mara Louw",
+      "Llewellyn Cordier",
+      "Paballo Koza"
     ],
-    "trailer_key": "CDrieqwSdgI",
+    "trailer_key": "vARuEtj3hTE",
     "original_language": "en",
     "region": "Global Cinema",
     "is_original": false,
@@ -12564,7 +12600,7 @@
       "Kwok-Ming Ma",
       "Selena Lee"
     ],
-    "trailer_key": "EXeTwQWrcwY",
+    "trailer_key": "PeaTJ-z2phE",
     "original_language": "en",
     "region": "Global Cinema",
     "is_original": false,
@@ -12603,8 +12639,8 @@
     "director": "Acclaimed Filmmaker",
     "cast": [
       "Yuriyan Retriever",
-      "Tom Choi",
-      "Ell"
+      "Takumi Saito",
+      "Victoria Grace"
     ],
     "trailer_key": "SL86963D0MQ",
     "original_language": "en",
@@ -12619,7 +12655,7 @@
     "tagline": "Now Streaming in 4K Ultra HD",
     "overview": "Temporary employee Ms. Kim (Kim Hye-Soo) is a remarkable woman. She possesses highly advanced skills in seemingly all work fields. She's also highly confident and always sticks to her ideals. Jang Kyu-Jik (Oh Ji-Ho) is a hot-shot ...",
     "release_date": "2013-01-01",
-    "vote_average": 7.7,
+    "vote_average": 7.5,
     "vote_count": 2400,
     "runtime": 135,
     "poster_path": "https://images.metahub.space/poster/small/tt3375996/img",
@@ -12658,7 +12694,7 @@
     "tagline": "Now Streaming in 4K Ultra HD",
     "overview": "Esther, the Queen tells the story of a beautiful young lady, and Jewish at a time when her people were persecuted and she must avoid all of being extinct. The drama takes place in Persian Empire, where King Ahasuerus called all th...",
     "release_date": "2010-01-01",
-    "vote_average": 7.8,
+    "vote_average": 8.1,
     "vote_count": 2400,
     "runtime": 135,
     "poster_path": "https://images.metahub.space/poster/small/tt1615929/img",
@@ -18342,6 +18378,976 @@
     "original_language": "hi",
     "region": "Hindi Bollywood",
     "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 4186679,
+    "imdb_id": "tt27555238",
+    "title": "Kaage Bangara",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Kaage Bangara (2024) - High-definition streaming feature presentation.",
+    "release_date": "2024-01-01",
+    "vote_average": 7.8,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt27555238/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt27555238/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "movie",
+    "director": "Acclaimed Filmmaker",
+    "cast": [
+      "Featured Cast"
+    ],
+    "trailer_key": "EXeTwQWrcwY",
+    "original_language": "en",
+    "region": "Global Cinema",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 5481953,
+    "imdb_id": "tt0347145",
+    "title": "Harameya fi KG2",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Harameya fi KG2 (2002) - High-definition streaming feature presentation.",
+    "release_date": "2002-01-01",
+    "vote_average": 7.8,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BNzE0YzMwMTItM2E4ZS00YmQwLWFkYTEtZTJiMTMyOTQ2Zjc1XkEyXkFqcGc@._V1_SX250.jpg",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt0347145/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "movie",
+    "director": "Acclaimed Filmmaker",
+    "cast": [
+      "Featured Cast"
+    ],
+    "trailer_key": "EXeTwQWrcwY",
+    "original_language": "en",
+    "region": "Global Cinema",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 6933801,
+    "imdb_id": "tt4502426",
+    "title": "Burning Birds",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Burning Birds is Sri Lankan film written and directed by Sanjeewa Pushpakumara. The film world premiered at 21st Busan International Film Festival (2016) under its New Currents Competition.",
+    "release_date": "2016-01-01",
+    "vote_average": 6.9,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt4502426/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt4502426/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "movie",
+    "director": "Sanjeewa Pushpakumara",
+    "cast": [
+      "Anoma Janadari",
+      "Samanalee Fonseka",
+      "Chandani Senevirathna"
+    ],
+    "trailer_key": "WgJiSBPYF-Y",
+    "original_language": "te",
+    "region": "Telugu Tollywood",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 7071253,
+    "imdb_id": "tt1830645",
+    "title": "Igillena Maluwo",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "3 young characters experience painful personal journeys in a civil war trodden Sri Lankan village, surrounded by a backdrop of violence, sexual frustration and political hypocrisy.",
+    "release_date": "2011-01-01",
+    "vote_average": 5.7,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt1830645/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt1830645/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "movie",
+    "director": "Sanjeewa Pushpakumara",
+    "cast": [
+      "Kaushalaya Fernando",
+      "Nilanka Sepala Dahanayake",
+      "Chaminda Sampath Jayaweera"
+    ],
+    "trailer_key": "wJpwBt-sBLc",
+    "original_language": "en",
+    "region": "Global Cinema",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 5235623,
+    "imdb_id": "tt39367050",
+    "title": "Laal Salaam",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Laal Salaam (2026) - High-definition streaming feature presentation.",
+    "release_date": "2026-01-01",
+    "vote_average": 7.8,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BYzUzYTA4OTYtMjcwNi00NDUxLWE0OGMtYzhjMmMwYTJlMjViXkEyXkFqcGc@._V1_SX250.jpg",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt39367050/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "movie",
+    "director": "Acclaimed Filmmaker",
+    "cast": [
+      "Featured Cast"
+    ],
+    "trailer_key": "EXeTwQWrcwY",
+    "original_language": "en",
+    "region": "Global Cinema",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 9694362,
+    "imdb_id": "tt5755594",
+    "title": "Hello Mumbai",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Hello Mumbai (2016) - High-definition streaming feature presentation.",
+    "release_date": "2016-01-01",
+    "vote_average": 7.8,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BMTNhNGVmNmUtNDAxNC00MjIyLWFkYzgtYWU3ZmQ4NTBmOWU0XkEyXkFqcGc@._V1_SX250.jpg",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt5755594/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "movie",
+    "director": "Acclaimed Filmmaker",
+    "cast": [
+      "Featured Cast"
+    ],
+    "trailer_key": "EXeTwQWrcwY",
+    "original_language": "en",
+    "region": "Global Cinema",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 2348882,
+    "imdb_id": "tt13654972",
+    "title": "Hanuman Bhakta Hawaldaar",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Hanuman Bhakta Hawaldaar (2008) - High-definition streaming feature presentation.",
+    "release_date": "2008-01-01",
+    "vote_average": 7.8,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BNmRhNGI5MzItMDYxMC00YWI4LWE0ZTQtZDY0NTBjMTMxNDE4XkEyXkFqcGc@._V1_SX250.jpg",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt13654972/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "movie",
+    "director": "Acclaimed Filmmaker",
+    "cast": [
+      "Featured Cast"
+    ],
+    "trailer_key": "kU_P001T970",
+    "original_language": "te",
+    "region": "Telugu Tollywood",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 8326527,
+    "imdb_id": "tt0031614",
+    "title": "The Man They Could Not Hang",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "The Man They Could Not Hang (1939) - High-definition streaming feature presentation.",
+    "release_date": "1939-01-01",
+    "vote_average": 7.8,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BNjk0N2RmNGQtODRmYS00ZTQzLWI5NzUtZjA1MzA1N2I3NWM3XkEyXkFqcGc@._V1_SX250.jpg",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt0031614/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "movie",
+    "director": "Acclaimed Filmmaker",
+    "cast": [
+      "Featured Cast"
+    ],
+    "trailer_key": "EXeTwQWrcwY",
+    "original_language": "en",
+    "region": "Global Cinema",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 6553432,
+    "imdb_id": "tt7210122",
+    "title": "Azmaish: A Journey Through the Subcontinent",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "A transnational journey through India and Pakistan, uncovering the common humanity beyond the divisive political rhetoric.",
+    "release_date": "2017-01-01",
+    "vote_average": 7.6,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt7210122/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt7210122/img",
+    "genres": [
+      {
+        "id": 99,
+        "name": "Documentary"
+      }
+    ],
+    "genre_ids": [
+      99
+    ],
+    "media_type": "movie",
+    "director": "Sabiha Sumar",
+    "cast": [
+      "Kalki Koechlin",
+      "Dorothea Reinicke",
+      "Sabiha Sumar"
+    ],
+    "trailer_key": "EXeTwQWrcwY",
+    "original_language": "en",
+    "region": "Global Cinema",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 3481960,
+    "imdb_id": "tt4829728",
+    "title": "Kalkijug",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "The film delineate a striking clash of ego between two brilliant minds that pans out dramatically when an old unsolved murder mystery resurfaces out of the blue. Directed by Debarati Gupta. It features Bratya Basu and Debshankar H...",
+    "release_date": "2015-01-01",
+    "vote_average": 6.5,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt4829728/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt4829728/img",
+    "genres": [
+      {
+        "id": 53,
+        "name": "Thriller"
+      }
+    ],
+    "genre_ids": [
+      53
+    ],
+    "media_type": "movie",
+    "director": "Debarati Gupta",
+    "cast": [
+      "Bratya Basu",
+      "Debshankar Haldar",
+      "Rimjhim Mitra"
+    ],
+    "trailer_key": "rn7tdg6cpW4",
+    "original_language": "te",
+    "region": "Telugu Tollywood",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 6471845,
+    "imdb_id": "tt49232939",
+    "title": "Jawan Mere Des Da (Punjabi)",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Jawan Mere Des Da (Punjabi) (1974) - High-definition streaming feature presentation.",
+    "release_date": "1974-01-01",
+    "vote_average": 7.8,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt49232939/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt49232939/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "movie",
+    "director": "Acclaimed Filmmaker",
+    "cast": [
+      "Featured Cast"
+    ],
+    "trailer_key": "COv52Qyctws",
+    "original_language": "hi",
+    "region": "Hindi Bollywood",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 2098284,
+    "imdb_id": "tt14245718",
+    "title": "Reshman Jawan Ho gai",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Reshman Jawan Ho gai (1975) - High-definition streaming feature presentation.",
+    "release_date": "1975-01-01",
+    "vote_average": 7.8,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt14245718/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt14245718/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "movie",
+    "director": "Acclaimed Filmmaker",
+    "cast": [
+      "Featured Cast"
+    ],
+    "trailer_key": "COv52Qyctws",
+    "original_language": "hi",
+    "region": "Hindi Bollywood",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 1051443,
+    "imdb_id": "tt0076288",
+    "title": "Ladki Jawan Ho Gayi",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Ladki Jawan Ho Gayi (1977) - High-definition streaming feature presentation.",
+    "release_date": "1977-01-01",
+    "vote_average": 7.8,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt0076288/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt0076288/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "movie",
+    "director": "Acclaimed Filmmaker",
+    "cast": [
+      "Featured Cast"
+    ],
+    "trailer_key": "COv52Qyctws",
+    "original_language": "hi",
+    "region": "Hindi Bollywood",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 8384334,
+    "imdb_id": "tt3890338",
+    "title": "Pahadi Jawan",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Pahadi Jawan (1964) - High-definition streaming feature presentation.",
+    "release_date": "1964-01-01",
+    "vote_average": 7.8,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt3890338/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt3890338/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "movie",
+    "director": "Acclaimed Filmmaker",
+    "cast": [
+      "Featured Cast"
+    ],
+    "trailer_key": "COv52Qyctws",
+    "original_language": "hi",
+    "region": "Hindi Bollywood",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 5042883,
+    "imdb_id": "tt0155775",
+    "title": "Jawani Diwani",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "The exuberance of youth influences two college going lovers to edify their headstrong parents. They sing the following Panchamda songs to achieve this goal: \"Jaane Jaan doodta fir ruha\" \"Saamne yeh koun aaya\" \"Yeh Jawani hai Diwan...",
+    "release_date": "1972-01-01",
+    "vote_average": 6.2,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt0155775/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt0155775/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Musical"
+      },
+      {
+        "id": 10751,
+        "name": "Family"
+      },
+      {
+        "id": 10749,
+        "name": "Romance"
+      }
+    ],
+    "genre_ids": [
+      18,
+      10751,
+      10749
+    ],
+    "media_type": "movie",
+    "director": "Narendra Bedi",
+    "cast": [
+      "Randhir Kapoor",
+      "Jaya Bachchan",
+      "Balraj Sahni"
+    ],
+    "trailer_key": "COv52Qyctws",
+    "original_language": "hi",
+    "region": "Hindi Bollywood",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 8964753,
+    "imdb_id": "tt1686780",
+    "title": "Jawani Zindabaad",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Prabjyot Kaur lives a traditional and conservative lifestyle in rural Punjab along with her parents, and grandparents. Her father, Joginder Singh, is very stern and disapproves of love-marriages. When she expresses a desire to con...",
+    "release_date": "2010-01-01",
+    "vote_average": 6.9,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt1686780/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt1686780/img",
+    "genres": [
+      {
+        "id": 35,
+        "name": "Comedy"
+      },
+      {
+        "id": 18,
+        "name": "Drama"
+      },
+      {
+        "id": 10749,
+        "name": "Romance"
+      }
+    ],
+    "genre_ids": [
+      35,
+      18,
+      10749
+    ],
+    "media_type": "movie",
+    "director": "Harinder Gill",
+    "cast": [
+      "Raj Brar",
+      "Pooja Kanwal",
+      "Guggu Gill"
+    ],
+    "trailer_key": "COv52Qyctws",
+    "original_language": "hi",
+    "region": "Hindi Bollywood",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 6597518,
+    "imdb_id": "tt0241594",
+    "title": "Jawani",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Jawani (1942) - High-definition streaming feature presentation.",
+    "release_date": "1942-01-01",
+    "vote_average": 7.8,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt0241594/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt0241594/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "movie",
+    "director": "Wajahat Mirza",
+    "cast": [
+      "Husn Banu",
+      "Sankatha Prasad",
+      "Kayamali"
+    ],
+    "trailer_key": "COv52Qyctws",
+    "original_language": "hi",
+    "region": "Hindi Bollywood",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 1372462,
+    "imdb_id": "tt1596721",
+    "title": "Chak Jawana",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Directed by Simerjeet Singh, the film deals with a village in Punjab; the youth of which are heedless to their responsibilities. This affects the progress of the village as a whole, leaving the contingent elders worried and cluele...",
+    "release_date": "2010-01-01",
+    "vote_average": 7.2,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt1596721/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt1596721/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "movie",
+    "director": "Simerjit Singh",
+    "cast": [
+      "Gurdas Maan",
+      "Jonita Doda",
+      "Gaurav Kakkar"
+    ],
+    "trailer_key": "COv52Qyctws",
+    "original_language": "hi",
+    "region": "Hindi Bollywood",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 9071906,
+    "imdb_id": "tt0122946",
+    "title": "Animal Room",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Animal Room (1995) - High-definition streaming feature presentation.",
+    "release_date": "1995-01-01",
+    "vote_average": 7.8,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BNGViNDdlYjItYTZkZS00OGRhLThlYTctMjA3MmVjZGZhMDM3XkEyXkFqcGc@._V1_SX250.jpg",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt0122946/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "movie",
+    "director": "Acclaimed Filmmaker",
+    "cast": [
+      "Featured Cast"
+    ],
+    "trailer_key": "Dydmpfo68DA",
+    "original_language": "hi",
+    "region": "Hindi Bollywood",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 3740446,
+    "imdb_id": "tt26896414",
+    "title": "All the Devils Are Here",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Secluded in the middle of Dartmoor, Four thieves find themselves hiding out with nothing to do but count the money and time to kill.",
+    "release_date": "2025-01-01",
+    "vote_average": 5.4,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt26896414/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt26896414/img",
+    "genres": [
+      {
+        "id": 9648,
+        "name": "Mystery"
+      },
+      {
+        "id": 53,
+        "name": "Thriller"
+      }
+    ],
+    "genre_ids": [
+      9648,
+      53
+    ],
+    "media_type": "movie",
+    "director": "Barnaby Roper",
+    "cast": [
+      "Eddie Marsan",
+      "Sam Claflin",
+      "Burn Gorman"
+    ],
+    "trailer_key": "FK_FYtYDOmU",
+    "original_language": "en",
+    "region": "Global Cinema",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 2307879,
+    "imdb_id": "tt7946836",
+    "title": "Animal World",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "A man finds himself deep in debt and is coerced to board a ship that hosts a risky gambling party.",
+    "release_date": "2018-01-01",
+    "vote_average": 6.4,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt7946836/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt7946836/img",
+    "genres": [
+      {
+        "id": 28,
+        "name": "Action"
+      },
+      {
+        "id": 14,
+        "name": "Fantasy"
+      },
+      {
+        "id": 878,
+        "name": "Sci-Fi"
+      }
+    ],
+    "genre_ids": [
+      28,
+      14,
+      878
+    ],
+    "media_type": "movie",
+    "director": "Yan Han",
+    "cast": [
+      "Yifeng Li",
+      "Yunhe Yi",
+      "Bingkun Cao"
+    ],
+    "trailer_key": "gLJAQuyuYkw",
+    "original_language": "hi",
+    "region": "Hindi Bollywood",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 7631269,
+    "imdb_id": "tt1445022",
+    "title": "Garuda di Dadaku",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Talented 12-year-old boy dreams of becoming a great soccer player despite his loving grandfather's stern disapproval.",
+    "release_date": "2009-01-01",
+    "vote_average": 6.7,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt1445022/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt1445022/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      },
+      {
+        "id": 18,
+        "name": "Sport"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "movie",
+    "director": "Ifa Isfansyah",
+    "cast": [
+      "Emir Mahira",
+      "Aldo Tansani",
+      "Marsha Aruan"
+    ],
+    "trailer_key": "0LgDV7xFIHs",
+    "original_language": "en",
+    "region": "Global Cinema",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 5938133,
+    "imdb_id": "tt1619490",
+    "title": "Stages - filmen om bandet D\u00fan\u00e9",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Stages - filmen om bandet D\u00fan\u00e9 (2009) - High-definition streaming feature presentation.",
+    "release_date": "2009-01-01",
+    "vote_average": 7.5,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt1619490/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt1619490/img",
+    "genres": [
+      {
+        "id": 99,
+        "name": "Documentary"
+      }
+    ],
+    "genre_ids": [
+      99
+    ],
+    "media_type": "movie",
+    "director": "Uffe Truust",
+    "cast": [
+      "Malte Aarup-S\u00f8rensen",
+      "Cecilie Dyrberg",
+      "Danny Jungslund"
+    ],
+    "trailer_key": "EXeTwQWrcwY",
+    "original_language": "en",
+    "region": "Global Cinema",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 5463988,
+    "imdb_id": "tt22937366",
+    "title": "Die Akte Oppenheimer",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Die Akte Oppenheimer (2022) - High-definition streaming feature presentation.",
+    "release_date": "2022-01-01",
+    "vote_average": 7.8,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BNGYyYjcyZTEtMmZhNC00YWE1LTlhYmYtM2UzY2IyNzliZDdiXkEyXkFqcGc@._V1_SX250.jpg",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt22937366/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "movie",
+    "director": "Acclaimed Filmmaker",
+    "cast": [
+      "Featured Cast"
+    ],
+    "trailer_key": "uYPbbksJxIg",
+    "original_language": "en",
+    "region": "Global Cinema",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 8903108,
+    "imdb_id": "tt2778518",
+    "title": "Benur - Un gladiatore in affitto",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "Benur - Un gladiatore in affitto (2012) - High-definition streaming feature presentation.",
+    "release_date": "2012-01-01",
+    "vote_average": 6.0,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt2778518/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt2778518/img",
+    "genres": [
+      {
+        "id": 35,
+        "name": "Comedy"
+      }
+    ],
+    "genre_ids": [
+      35
+    ],
+    "media_type": "movie",
+    "director": "Massimo Andrei",
+    "cast": [
+      "Nicola Pistoia",
+      "Paolo Triestino",
+      "Elisabetta De Vito"
+    ],
+    "trailer_key": "B4APgWJYH-U",
+    "original_language": "en",
+    "region": "Global Cinema",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 9850279,
+    "imdb_id": "tt2286266",
+    "title": "Oddities San Francisco",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "San Francisco puts a West-Coast spin on Science's mega-hit series ODDITIES. The show follows crazy transactions as big, odd memorable characters come in out of the famed store Loved To Death, located in the heart of San Francisco....",
+    "release_date": "2012-01-01",
+    "vote_average": 7.3,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt2286266/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt2286266/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Reality-TV"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "series",
+    "director": "Acclaimed Filmmaker",
+    "cast": [
+      "Wednesday Mourning",
+      "Korri Sabatini",
+      "Audra Kunkle"
+    ],
+    "trailer_key": "EXeTwQWrcwY",
+    "original_language": "en",
+    "region": "Global Cinema",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 3033685,
+    "imdb_id": "tt0182552",
+    "title": "60 Minutes II",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "60 Minutes II (1999) - High-definition streaming feature presentation.",
+    "release_date": "1999-01-01",
+    "vote_average": 7.1,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://images.metahub.space/poster/small/tt0182552/img",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt0182552/img",
+    "genres": [
+      {
+        "id": 99,
+        "name": "Documentary"
+      },
+      {
+        "id": 18,
+        "name": "News"
+      }
+    ],
+    "genre_ids": [
+      99,
+      18
+    ],
+    "media_type": "series",
+    "director": "Acclaimed Filmmaker",
+    "cast": [
+      "Dan Rather",
+      "Jimmy Tingle",
+      "Bob Simon"
+    ],
+    "trailer_key": "EXeTwQWrcwY",
+    "original_language": "en",
+    "region": "Global Cinema",
+    "is_original": false,
+    "source": "LIVE_API_CINEMETA"
+  },
+  {
+    "id": 9395179,
+    "imdb_id": "tt39656291",
+    "title": "The Dark Wizard",
+    "tagline": "Now Streaming in 4K Ultra HD",
+    "overview": "The Dark Wizard (2026) - High-definition streaming feature presentation.",
+    "release_date": "2026-01-01",
+    "vote_average": 7.8,
+    "vote_count": 2400,
+    "runtime": 135,
+    "poster_path": "https://m.media-amazon.com/images/M/MV5BMzEzZTYyMmYtYTFhMi00MzEwLTg1ZGEtOGRhZmQ3NWVjOGI3XkEyXkFqcGc@._V1_SX250.jpg",
+    "backdrop_path": "https://images.metahub.space/background/medium/tt39656291/img",
+    "genres": [
+      {
+        "id": 18,
+        "name": "Drama"
+      }
+    ],
+    "genre_ids": [
+      18
+    ],
+    "media_type": "series",
+    "director": "Acclaimed Filmmaker",
+    "cast": [
+      "Featured Cast"
+    ],
+    "trailer_key": "rrwycJ08PSA",
+    "original_language": "en",
+    "region": "Netflix Global Original",
+    "is_original": true,
     "source": "LIVE_API_CINEMETA"
   }
 ]

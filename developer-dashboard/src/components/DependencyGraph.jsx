@@ -333,6 +333,9 @@ function LegendItem({ color, label, bar = false }) {
 function NodeTooltip({ node, pos, metrics, isRoot, cascadeIdx }) {
   const x = pos.x > 360 ? pos.x - 110 : pos.x + 22
   const y = pos.y > 260 ? pos.y - 80  : pos.y - 10
+  const requests = metrics?.request_rate ?? 0
+  const errorPct = metrics?.error_rate_pct
+    ?? (requests > 0 ? (metrics?.error_rate_5xx ?? 0) / requests * 100 : null)
 
   return (
     <foreignObject x={x} y={y} width={130} height={90} style={{ overflow: 'visible' }}>
@@ -346,7 +349,7 @@ function NodeTooltip({ node, pos, metrics, isRoot, cascadeIdx }) {
         {metrics && (
           <>
             <p className="text-slate-400 mt-1">
-              Err: <span className="text-slate-200">{((metrics.error_rate_5xx ?? 0) * 1000).toFixed(2)}/s</span>
+              5xx: <span className="text-slate-200">{errorPct == null ? 'No traffic' : `${errorPct.toFixed(2)}%`}</span>
             </p>
             <p className="text-slate-400">
               P99: <span className="text-slate-200">{Math.round((metrics.p99_latency_s ?? 0) * 1000)}ms</span>

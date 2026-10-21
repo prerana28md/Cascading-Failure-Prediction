@@ -10,13 +10,11 @@ x-service-env: &common-env
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://172.28.0.30:4318"
   JAVA_OPTS: "-Dsun.net.inetaddr.ttl=30 -Dnetworkaddress.cache.ttl=30 -Dsun.net.inetaddr.negative.ttl=0 -Djava.net.preferIPv4Stack=true"
 
-# ─── Reusable MongoDB Atlas host entries (bypasses DNS — needed on Windows Docker) ──
+# ─── Static host entries (bypasses DNS — needed on this Windows Docker setup) ──
 x-mongo-hosts: &mongo-hosts
   extra_hosts:
     - "host.docker.internal:host-gateway"
-    - "ac-oscdkrc-shard-00-00.f46nymd.mongodb.net:159.41.227.47"
-    - "ac-oscdkrc-shard-00-01.f46nymd.mongodb.net:159.41.168.127"
-    - "ac-oscdkrc-shard-00-02.f46nymd.mongodb.net:159.41.245.217"
+    - "mongodb:172.28.0.33"
     # ── Inter-service hostnames resolved via static IP (UDP/53 blocked on this host) ──
     - "notification-service:172.28.0.20"
     - "delivery-service:172.28.0.21"
@@ -55,6 +53,8 @@ services:
   prometheus:
     image: prom/prometheus:v2.53.1
     container_name: prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "9090:9090"
     volumes:
@@ -102,6 +102,25 @@ services:
     networks:
       - cascade-net
 
+  # ── Local MongoDB (offline-capable persistent application storage) ─────────
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      cascade-net:
+        ipv4_address: 172.28.0.33
+
   # ── Grafana  (dashboards) — UI: 3001 ──────────────────────────────────────
   grafana:
     image: grafana/grafana:11.1.3
@@ -140,10 +159,14 @@ services:
       - "8086:8086"
     environment:
       <<: *common-env
-      SPRING_DATA_MONGODB_URI: "mongodb://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@ac-oscdkrc-shard-00-00.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-01.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-02.f46nymd.mongodb.net:27017/notification_db?authSource=admin&replicaSet=atlas-crtyi8-shard-0&tls=true&retryWrites=true&w=majority"
+      SPRING_DATA_MONGODB_URI: "${NOTIFICATION_MONGODB_URI:-mongodb://mongodb:27017/notification_db}"
     depends_on:
-      - jaeger
-      - prometheus
+      mongodb:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+      prometheus:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8086/actuator/health || exit 1"]
       <<: *spring-healthcheck
@@ -164,10 +187,14 @@ services:
       - "8085:8085"
     environment:
       <<: *common-env
-      SPRING_DATA_MONGODB_URI: "mongodb://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@ac-oscdkrc-shard-00-00.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-01.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-02.f46nymd.mongodb.net:27017/delivery_db?authSource=admin&replicaSet=atlas-crtyi8-shard-0&tls=true&retryWrites=true&w=majority"
+      SPRING_DATA_MONGODB_URI: "${DELIVERY_MONGODB_URI:-mongodb://mongodb:27017/delivery_db}"
     depends_on:
-      - jaeger
-      - prometheus
+      mongodb:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+      prometheus:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8085/actuator/health || exit 1"]
       <<: *spring-healthcheck
@@ -188,11 +215,15 @@ services:
       - "8083:8083"
     environment:
       <<: *common-env
-      SPRING_DATA_MONGODB_URI: "mongodb://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@ac-oscdkrc-shard-00-00.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-01.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-02.f46nymd.mongodb.net:27017/inventory_db?authSource=admin&replicaSet=atlas-crtyi8-shard-0&tls=true&retryWrites=true&w=majority"
+      SPRING_DATA_MONGODB_URI: "${INVENTORY_MONGODB_URI:-mongodb://mongodb:27017/inventory_db}"
       JWT_SECRET: "${JWT_SECRET:-cascade-failure-prediction-super-secret-key-2024-min32chars}"
     depends_on:
-      - jaeger
-      - prometheus
+      mongodb:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+      prometheus:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8083/actuator/health || exit 1"]
       <<: *spring-healthcheck
@@ -213,9 +244,11 @@ services:
       - "8082:8082"
     environment:
       <<: *common-env
-      SPRING_DATA_MONGODB_URI: "mongodb://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@ac-oscdkrc-shard-00-00.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-01.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-02.f46nymd.mongodb.net:27017/payment_db?authSource=admin&replicaSet=atlas-crtyi8-shard-0&tls=true&retryWrites=true&w=majority"
+      SPRING_DATA_MONGODB_URI: "${PAYMENT_MONGODB_URI:-mongodb://mongodb:27017/payment_db}"
       SERVICE_NOTIFICATION_URL: "http://172.28.0.20:8086"
     depends_on:
+      mongodb:
+        condition: service_healthy
       notification-service:
         condition: service_healthy
     healthcheck:
@@ -238,10 +271,12 @@ services:
       - "8084:8084"
     environment:
       <<: *common-env
-      SPRING_DATA_MONGODB_URI: "mongodb://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@ac-oscdkrc-shard-00-00.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-01.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-02.f46nymd.mongodb.net:27017/shipping_db?authSource=admin&replicaSet=atlas-crtyi8-shard-0&tls=true&retryWrites=true&w=majority"
+      SPRING_DATA_MONGODB_URI: "${SHIPPING_MONGODB_URI:-mongodb://mongodb:27017/shipping_db}"
       SERVICE_DELIVERY_URL: "http://172.28.0.21:8085"
       SERVICE_NOTIFICATION_URL: "http://172.28.0.20:8086"
     depends_on:
+      mongodb:
+        condition: service_healthy
       delivery-service:
         condition: service_healthy
       notification-service:
@@ -266,7 +301,7 @@ services:
       - "8081:8081"
     environment:
       <<: *common-env
-      SPRING_DATA_MONGODB_URI: "mongodb://${MONGO_USER:-Poornima15}:${MONGO_PASS:-poornima15}@ac-oscdkrc-shard-00-00.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-01.f46nymd.mongodb.net:27017,ac-oscdkrc-shard-00-02.f46nymd.mongodb.net:27017/order_db?authSource=admin&replicaSet=atlas-crtyi8-shard-0&tls=true&retryWrites=true&w=majority"
+      SPRING_DATA_MONGODB_URI: "${ORDER_MONGODB_URI:-mongodb://mongodb:27017/order_db}"
       SERVICE_INVENTORY_URL: "http://172.28.0.22:8083"
       SERVICE_PAYMENT_URL: "http://172.28.0.23:8082"
       SERVICE_SHIPPING_URL: "http://172.28.0.24:8084"
@@ -274,6 +309,8 @@ services:
       JWT_SECRET: "${JWT_SECRET:-cascade-failure-prediction-super-secret-key-2024-min32chars}"
       JWT_EXPIRATION_MS: "${JWT_EXPIRATION_MS:-86400000}"
     depends_on:
+      mongodb:
+        condition: service_healthy
       inventory-service:
         condition: service_healthy
       payment-service:
@@ -351,7 +388,7 @@ services:
 # VOLUMES  (persistent storage for observability data)
 # ════════════════════════════════════════════════════════════════════════════
 volumes:
-  
+  mongodb-data:
   prometheus-data:
   grafana-data:
   loki-data:

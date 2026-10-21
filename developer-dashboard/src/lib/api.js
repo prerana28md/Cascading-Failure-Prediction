@@ -38,6 +38,12 @@ export async function fetchLiveMetrics(workload = 'omnistore') {
   return apiFetch(`${ML_API}/api/metrics/live?workload=${encodeURIComponent(workload)}`)
 }
 
+/** Fetch recent application logs for a service from Loki or its local log file. */
+export async function fetchServiceLogs(service, workload = 'omnistore', limit = 100) {
+  const params = new URLSearchParams({ service, workload, limit: String(limit) })
+  return apiFetch(`${ML_API}/api/service-logs?${params.toString()}`)
+}
+
 /** Clears the rolling incident log (POST /incidents/clear with optional workload or service filter). */
 export async function clearIncidents(workload = null, service = null) {
   const params = new URLSearchParams()
@@ -278,9 +284,10 @@ export function deriveSystemStatus(data) {
   if (!data) return 'UNKNOWN'
   const level = data.risk_level || 'LOW'
   const down  = data.system?.num_services_down ?? 0
-  const maxErr = data.system?.max_error_rate ?? data.system?.mean_error_rate ?? 0
-  if (level === 'CRITICAL' || down >= 2 || maxErr >= 0.35) return 'CRITICAL'
-  if (level === 'HIGH'     || down >= 1 || level === 'MEDIUM' || maxErr >= 0.02) return 'DEGRADED'
+  const maxErrPct = data.system?.max_error_rate_pct ?? 0
+  if (data.system?.prometheus_connected === false && down === 0 && !['HIGH', 'CRITICAL'].includes(level)) return 'UNKNOWN'
+  if (level === 'CRITICAL' || down >= 2 || maxErrPct >= 35) return 'CRITICAL'
+  if (level === 'HIGH'     || down >= 1 || level === 'MEDIUM' || maxErrPct >= 8) return 'DEGRADED'
   return 'HEALTHY'
 }
 

@@ -53,7 +53,12 @@ CORS(app)
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
 GRAFANA_URL    = os.getenv("GRAFANA_URL",    "http://localhost:3001")
 JAEGER_URL     = os.getenv("JAEGER_URL",     "http://localhost:16686")
+LOKI_URL       = os.getenv("LOKI_URL",       "http://localhost:3100")
 MODEL_DIR      = os.getenv("MODEL_DIR", os.path.join(os.path.dirname(__file__), "model"))
+MOVIESTREAM_LOG_DIR = os.getenv(
+    "MOVIESTREAM_LOG_DIR",
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "moviestream", "services", "logs")),
+)
 
 WORKLOAD_SERVICES = {
     "omnistore":   ["order", "payment", "inventory", "shipping", "delivery", "notification"],
@@ -254,8 +259,7 @@ def predict_cascade(raw: dict, workload: str = "omnistore") -> dict:
     services = WORKLOAD_SERVICES.get(workload, SERVICES)
     if workload != "omnistore" or _model is None or _scaler is None or _features is None:
         rl, cr = rule_based_risk(raw, workload=workload)
-        system_max_err = float(raw.get("system_max_error_rate", max([raw.get(f"{s}_error_rate_5xx", 0.0) for s in services])))
-        system_mean_err = float(raw.get("system_mean_error_rate", 0.0))
+        system_max_err = max((_service_error_ratio(raw, svc) for svc in services), default=0.0)
         down_count = int(raw.get("num_services_down", 0))
         prediction = "CASCADE_FAILURE" if (cr >= 0.5 and (system_max_err >= 0.08 or down_count >= 1)) else "NORMAL"
         return {
@@ -285,8 +289,8 @@ def predict_cascade(raw: dict, workload: str = "omnistore") -> dict:
         cascade_risk = 1.0 if pred == 1 else 0.0
         confidence = 1.0
 
-    system_max_err = float(raw.get("system_max_error_rate", max([raw.get(f"{s}_error_rate_5xx", 0.0) for s in services])))
-    system_mean_err = float(raw.get("system_mean_error_rate", 0.0))
+    system_max_err = max((_service_error_ratio(raw, svc) for svc in services), default=0.0)
+    system_mean_err = _system_error_ratio(raw, services)
     down_count = int(raw.get("num_services_down", 0))
 
     # A single-digit error rate (<= 8%) with 0 services down is an isolated transient fluctuation, NOT a cascade failure
@@ -586,27 +590,34 @@ def sla_compliance(raw: dict, workload: str = "omnistore") -> dict:
     overall_breaches = 0
     for svc in services:
         targets = SLA_TARGETS.get(svc, {"uptime_pct": 99.0, "max_p99_s": 0.5, "max_error_rate": 0.01})
+        metrics_available = bool(raw.get("prometheus_connected", True))
         up      = float(raw.get(f"{svc}_service_up",      1.0))
-        err     = float(raw.get(f"{svc}_error_rate_5xx",  0.0))
+        err_ratio = _service_error_ratio(raw, svc)
         p99     = float(raw.get(f"{svc}_p99_latency_s",   0.0))
         req_rt  = float(raw.get(f"{svc}_request_rate",    0.0))
 
         # Uptime % — instant window (1 = 100%, 0 = 0%)
-        uptime_pct    = 100.0 if up == 1 else 0.0
+        uptime_pct    = (100.0 if up == 1 else 0.0) if metrics_available or up == 0 else None
         # Error budget: what % of allowed budget is consumed
         max_err       = targets["max_error_rate"]
-        err_budget_pct = min(100.0, round((err / max(max_err, 1e-6)) * 100, 1))
+        err_budget_pct = (
+            min(100.0, round((err_ratio / max(max_err, 1e-6)) * 100, 1))
+            if metrics_available else None
+        )
         # Latency budget consumption
         max_p99        = targets["max_p99_s"]
-        lat_budget_pct = min(100.0, round((p99 / max(max_p99, 1e-6)) * 100, 1))
+        lat_budget_pct = (
+            min(100.0, round((p99 / max(max_p99, 1e-6)) * 100, 1))
+            if metrics_available else None
+        )
 
         breaches = []
         svc_label = SERVICE_LABELS.get(svc, svc)
         if up == 0:
             breaches.append({"type": "DOWNTIME",      "message": f"{svc_label} is DOWN (SLA target: {targets['uptime_pct']}% uptime)"})
-        if err > max_err and req_rt > 0:
-            breaches.append({"type": "ERROR_BUDGET",  "message": f"Error rate {err:.4f}/s exceeds SLA limit of {max_err}/s ({err_budget_pct}% budget consumed)"})
-        if p99 > max_p99:
+        if metrics_available and err_ratio > max_err and req_rt > 0:
+            breaches.append({"type": "ERROR_BUDGET",  "message": f"5xx error ratio {err_ratio * 100:.2f}% exceeds SLA limit of {max_err * 100:.2f}% ({err_budget_pct}% budget consumed)"})
+        if metrics_available and p99 > max_p99:
             breaches.append({"type": "LATENCY_BUDGET","message": f"P99 latency {p99:.3f}s exceeds SLA limit of {max_p99}s ({lat_budget_pct}% budget consumed)"})
 
         overall_breaches += len(breaches)
@@ -614,7 +625,8 @@ def sla_compliance(raw: dict, workload: str = "omnistore") -> dict:
             "uptime_pct":       uptime_pct,
             "error_budget_pct": err_budget_pct,
             "latency_budget_pct": lat_budget_pct,
-            "sla_compliant":    len(breaches) == 0,
+            "sla_compliant":    len(breaches) == 0 if metrics_available or up == 0 else None,
+            "metrics_available": metrics_available,
             "breach_count":     len(breaches),
             "breaches":         breaches,
             "targets":          targets,
@@ -754,16 +766,16 @@ def root_cause(raw: dict, workload: str = "omnistore") -> list:
     services = WORKLOAD_SERVICES.get(workload, SERVICES)
     causes = []
     for svc in services:
-        err = float(raw.get(f"{svc}_error_rate_5xx", 0))
+        err_ratio = _service_error_ratio(raw, svc)
         p99 = float(raw.get(f"{svc}_p99_latency_s",  0))
         up  = float(raw.get(f"{svc}_service_up",      1))
         fault = str(raw.get(f"{svc}_fault", "NONE")).upper()
         if up == 0 or fault == "DOWN":
             causes.append({"service": svc, "reason": "SERVICE_DOWN",    "metric": "service_up",     "value": 0})
-        elif err > 0.08 or fault == "ERROR":
-            causes.append({"service": svc, "reason": "HIGH_ERROR_RATE", "metric": "error_rate_5xx", "value": round(err, 4)})
-        elif err > 0.01:
-            causes.append({"service": svc, "reason": "ELEVATED_ERROR_RATE", "metric": "error_rate_5xx", "value": round(err, 4)})
+        elif err_ratio > 0.08 or fault == "ERROR":
+            causes.append({"service": svc, "reason": "HIGH_ERROR_RATE", "metric": "error_rate_pct", "value": round(err_ratio * 100, 2)})
+        elif err_ratio > 0.01:
+            causes.append({"service": svc, "reason": "ELEVATED_ERROR_RATE", "metric": "error_rate_pct", "value": round(err_ratio * 100, 2)})
         elif p99 > 0.8 or fault == "LATENCY":
             causes.append({"service": svc, "reason": "HIGH_LATENCY",    "metric": "p99_latency_s",  "value": round(p99, 4)})
     causes.sort(key=lambda x: (x["reason"] == "SERVICE_DOWN", x.get("value", 0)), reverse=True)
@@ -990,6 +1002,23 @@ def rule_based_risk(raw: dict, workload: str = "omnistore") -> tuple:
     return "LOW", round(risk, 4)
 
 
+def _service_error_ratio(raw: dict, service: str) -> float:
+    """Return 5xx errors / requests as a fraction, independent of traffic volume."""
+    explicit_ratio = raw.get(f"{service}_error_ratio")
+    if explicit_ratio is not None:
+        return min(1.0, max(0.0, float(explicit_ratio)))
+
+    request_rate = max(0.0, float(raw.get(f"{service}_request_rate", 0.0)))
+    error_rate = max(0.0, float(raw.get(f"{service}_error_rate_5xx", 0.0)))
+    return min(1.0, error_rate / request_rate) if request_rate > 0 else 0.0
+
+
+def _system_error_ratio(raw: dict, services: list) -> float:
+    total_requests = sum(max(0.0, float(raw.get(f"{service}_request_rate", 0.0))) for service in services)
+    total_errors = sum(max(0.0, float(raw.get(f"{service}_error_rate_5xx", 0.0))) for service in services)
+    return min(1.0, total_errors / total_requests) if total_requests > 0 else 0.0
+
+
 def impact_analysis(raw: dict, workload: str = "omnistore") -> dict:
     """Calculate impact from the observed service state with graduated thresholds."""
     services = WORKLOAD_SERVICES.get(workload, SERVICES)
@@ -997,17 +1026,13 @@ def impact_analysis(raw: dict, workload: str = "omnistore") -> dict:
     for svc in services:
         fault = str(raw.get(f"{svc}_fault", "NONE")).upper()
         up = float(raw.get(f"{svc}_service_up", 1.0))
-        err = float(raw.get(f"{svc}_error_rate_5xx", 0.0))
+        err = _service_error_ratio(raw, svc)
         p99 = float(raw.get(f"{svc}_p99_latency_s", 0.0))
         delay = float(raw.get(f"{svc}_fault_delay_ms", 0.0)) / 1000.0
         target = SLA_TARGETS.get(svc, {"max_error_rate": 0.01, "max_p99_s": 0.5})
 
         # Graduated error impact:
-        # err <= max_error_rate: 0.0%
-        # 0.01 < err <= 0.08 (up to 8%): 5% to 15% (minor transient jitter)
-        # 0.08 < err <= 0.20 (8% to 20%): 15% to 40% (moderate degradation)
-        # 0.20 < err <= 0.35 (20% to 35%): 40% to 70% (high degradation)
-        # err > 0.35 (> 35%): 70% to 100% (critical failure)
+        # Error thresholds are fractions of requests, not errors per second.
         if err <= target["max_error_rate"]:
             error_impact = 0.0
         elif err <= 0.08:
@@ -1875,13 +1900,13 @@ def intelligent_recommendations(raw: dict, causes: list, impact: dict, criticali
     for svc in affected_services:
         fault = str(raw.get(f"{svc}_fault", "NONE")).upper()
         up = float(raw.get(f"{svc}_service_up", 1.0))
-        err = float(raw.get(f"{svc}_error_rate_5xx", 0.0))
+        err = _service_error_ratio(raw, svc)
         rr = float(raw.get(f"{svc}_request_rate", 0.0))
         p99 = float(raw.get(f"{svc}_p99_latency_s", 0.0))
         delay = float(raw.get(f"{svc}_fault_delay_ms", 0.0))
         label = SERVICE_LABELS.get(svc, svc)
         diag = SERVICE_DIAGNOSTICS.get(svc, {})
-        err_pct = round((err / max(rr, 0.001)) * 100, 1) if rr > 0 else round(err * 100.0, 1)
+        err_pct = round(err * 100.0, 1)
         sla_target = SLA_TARGETS.get(svc, {"max_error_rate": 0.01, "max_p99_s": 0.5})
         budget_pct = round((err / max(sla_target["max_error_rate"], 1e-6)) * 100, 1)
         svc_port = SERVICE_PORTS.get(svc, 8080)
@@ -1923,7 +1948,7 @@ def intelligent_recommendations(raw: dict, causes: list, impact: dict, criticali
             add(svc,
                 title,
                 why,
-                f"Fault: {fault}; error rate: {err:.4f}/s ({err_pct}% of traffic); SLA error budget consumed: {budget_pct}%; impact: {impact['services'][svc]:.1f}%.",
+                f"Fault: {fault}; 5xx responses: {err_pct}% of requests; SLA error budget consumed: {budget_pct}%; impact: {impact['services'][svc]:.1f}%.",
                 cfg.get("action", default_cmd),
                 cfg.get("priority", "P1"),
                 command=cfg.get("command", default_cmd),
@@ -2035,21 +2060,49 @@ def full_pipeline(raw: dict, workload: str = "omnistore") -> dict:
     rl         = ml_result["risk_level"]
     model_note = ml_result["model_note"]
 
+    system_mean_error_ratio = _system_error_ratio(raw, services)
+    system_max_error_ratio = max(
+        (_service_error_ratio(raw, svc) for svc in services),
+        default=0.0,
+    )
+
     # Percentage-scaled risk level escalation:
-    # CRITICAL requires widespread failure: >= 2 services down, system mean error >= 35%,
+    # CRITICAL requires widespread failure: >= 2 services down, system error ratio >= 35%,
     # or high cascade risk with significant error rate (>= 30%).
     if rl == "CRITICAL":
-        if raw.get("num_services_down", 0) < 2 and raw.get("system_mean_error_rate", 0) < 0.35 and cr < 0.80:
-            rl = "HIGH" if (raw.get("num_services_down", 0) >= 1 or raw.get("system_max_error_rate", 0) >= 0.20) else ("MEDIUM" if raw.get("system_max_error_rate", 0) >= 0.08 else "LOW")
+        if raw.get("num_services_down", 0) < 2 and system_mean_error_ratio < 0.35 and cr < 0.80:
+            rl = "HIGH" if (raw.get("num_services_down", 0) >= 1 or system_max_error_ratio >= 0.20) else ("MEDIUM" if system_max_error_ratio >= 0.08 else "LOW")
     elif criticality["severity"] == "CRITICAL":
-        if raw.get("num_services_down", 0) >= 2 or raw.get("system_mean_error_rate", 0) >= 0.35 or cr >= 0.80:
+        if raw.get("num_services_down", 0) >= 2 or system_mean_error_ratio >= 0.35 or cr >= 0.80:
             rl = "CRITICAL"
         else:
             rl = "HIGH"
     elif criticality["severity"] == "HIGH" and rl == "LOW":
-        rl = "MEDIUM" if raw.get("system_max_error_rate", 0) <= 0.15 else "HIGH"
+        rl = "MEDIUM" if system_max_error_ratio <= 0.15 else "HIGH"
 
     recs = intelligent_recommendations(raw, causes, impact, criticality, sla, workload=workload)
+    if raw.get("prometheus_connected", True) is False:
+        recs = [
+            item for item in recs
+            if "All " not in item.get("title", "")
+        ]
+        recs.insert(0, {
+            "service": "system",
+            "title": "Prometheus metrics are unavailable",
+            "recommendation": "Restore the local Prometheus metrics connection before evaluating service health.",
+            "what_is_happening": "The analysis API cannot query Prometheus. Error-rate, latency and availability trends are therefore incomplete.",
+            "cause": "Prometheus is stopped, unreachable, or its configured targets are not responding.",
+            "measures": [
+                "Start or restart the local Prometheus service.",
+                "Check target health at http://localhost:9090/targets.",
+                "Verify PROMETHEUS_URL and the service scrape targets.",
+            ],
+            "why": "Health and SLA values must not be interpreted as healthy while the metrics source is unavailable.",
+            "evidence": "prometheus_connected=false",
+            "priority": "P2",
+            "severity": "UNKNOWN",
+            "criticality": criticality["percentage"],
+        })
     enrich_fault_events(raw, impact, criticality, recs)
     _append_incident(raw, causes, rl, workload=workload)
 
@@ -2062,14 +2115,14 @@ def full_pipeline(raw: dict, workload: str = "omnistore") -> dict:
         rr  = float(raw.get(f"{svc}_request_rate",    0.0))
         sla_t = SLA_TARGETS.get(svc, {"max_error_rate": 0.01, "max_p99_s": 0.5})
 
-        # Error rate as % of requests
-        err_pct  = round((err / max(rr, 0.001)) * 100, 2) if rr > 0 else 0.0
+        # Error rate as % of requests; null means there was no traffic to measure.
+        err_pct  = round(_service_error_ratio(raw, svc) * 100, 2) if rr > 0 else None
         # Latency budget %
         lat_pct  = round(min(100.0, (p99 / max(sla_t["max_p99_s"], 0.001)) * 100), 1)
         # Uptime %
         up_pct   = 100.0 if up == 1 else 0.0
         # Error budget %
-        err_bud  = round(min(100.0, (err / max(sla_t["max_error_rate"], 1e-9)) * 100), 1)
+        err_bud  = round(min(100.0, (_service_error_ratio(raw, svc) / max(sla_t["max_error_rate"], 1e-9)) * 100), 1)
 
         obs_pct[svc] = {
             "uptime_pct":           up_pct,
@@ -2089,6 +2142,9 @@ def full_pipeline(raw: dict, workload: str = "omnistore") -> dict:
         "confidence":            confidence,
         "affected_percentage":   impact["affected_percentage"],
         "affected_services":     impact["affected_services"],
+        "affected_service_percentage": round(
+            impact["affected_services"] / max(len(services), 1) * 100, 1
+        ),
         "service_impact_pct":     impact["services"],
         "criticality_percentage": criticality["percentage"],
         "criticality_severity":   criticality["severity"],
@@ -2114,16 +2170,46 @@ def full_pipeline(raw: dict, workload: str = "omnistore") -> dict:
         "live_metrics": {
             svc: {
                 "error_rate_5xx": round(float(raw.get(f"{svc}_error_rate_5xx", 0)), 4),
+                "error_rate_pct": (
+                    round(
+                        float(raw.get(f"{svc}_error_rate_5xx", 0))
+                        / float(raw.get(f"{svc}_request_rate", 0))
+                        * 100,
+                        2,
+                    )
+                    if float(raw.get(f"{svc}_request_rate", 0)) > 0
+                    else None
+                ),
                 "p99_latency_s":  round(float(raw.get(f"{svc}_p99_latency_s",  0)), 4),
-                "service_up":     int(raw.get(f"{svc}_service_up", 1)),
+                "service_up": (
+                    int(raw.get(f"{svc}_service_up", 1))
+                    if raw.get("prometheus_connected", False)
+                    or str(raw.get(f"{svc}_fault", "NONE")).upper() == "DOWN"
+                    else None
+                ),
                 "request_rate":   round(float(raw.get(f"{svc}_request_rate",   0)), 4),
                 "jvm_heap_mb":    round(float(raw.get(f"{svc}_jvm_heap_mb",    0)), 1),
                 "active_threads": int(raw.get(f"{svc}_active_threads", 0)),
+                "metrics_available": bool(raw.get("prometheus_connected", True)),
             }
             for svc in services
         },
         "system": {
             "mean_error_rate":    round(float(raw.get("system_mean_error_rate",  0)), 4),
+            "error_rate_pct": (
+                round(
+                    sum(float(raw.get(f"{svc}_error_rate_5xx", 0)) for svc in services)
+                    / sum(float(raw.get(f"{svc}_request_rate", 0)) for svc in services)
+                    * 100,
+                    2,
+                )
+                if sum(float(raw.get(f"{svc}_request_rate", 0)) for svc in services) > 0
+                else None
+            ),
+            "max_error_rate_pct": round(
+                max((_service_error_ratio(raw, svc) for svc in services), default=0.0) * 100,
+                2,
+            ),
             "max_p99_latency":    round(float(raw.get("system_max_p99_latency",  0)), 4),
             "num_services_down":  int(raw.get("num_services_down", 0)),
             "prometheus_connected": bool(raw.get("prometheus_connected", False)),
@@ -2171,6 +2257,86 @@ def incidents():
     if service:
         filtered = [e for e in filtered if e.get("service", "").lower() == service]
     return jsonify({"incidents": filtered, "count": len(filtered)})
+
+
+@app.route("/api/service-logs")
+def service_logs():
+    """Return recent logs for one allow-listed service from Loki or MovieStream files."""
+    workload = request.args.get("workload", "omnistore").lower()
+    service = request.args.get("service", "").lower()
+    try:
+        limit = int(request.args.get("limit", "100"))
+    except ValueError:
+        return jsonify({"error": "limit must be an integer"}), 400
+
+    if workload not in WORKLOAD_SERVICES:
+        return jsonify({"error": "invalid workload"}), 400
+    if service not in WORKLOAD_SERVICES[workload]:
+        return jsonify({"error": "service does not belong to the selected workload"}), 400
+    if not 1 <= limit <= 500:
+        return jsonify({"error": "limit must be between 1 and 500"}), 400
+
+    if workload == "moviestream":
+        log_path = os.path.join(MOVIESTREAM_LOG_DIR, f"{service}-service.log")
+        if not os.path.isfile(log_path):
+            return jsonify({
+                "workload": workload,
+                "service": service,
+                "source": "local-file",
+                "logs": [],
+                "count": 0,
+                "message": "No local log file exists for this service yet.",
+            })
+        with open(log_path, "r", encoding="utf-8", errors="replace") as log_file:
+            lines = list(deque(log_file, maxlen=limit))
+        lines.reverse()
+        logs = [{"timestamp": None, "line": line.rstrip("\r\n")[-4000:]} for line in lines]
+        return jsonify({
+            "workload": workload,
+            "service": service,
+            "source": "local-file",
+            "logs": logs,
+            "count": len(logs),
+        })
+
+    import requests as req
+
+    end_ns = int(time.time() * 1_000_000_000)
+    start_ns = end_ns - 60 * 60 * 1_000_000_000
+    try:
+        response = req.get(
+            f"{LOKI_URL.rstrip('/')}/loki/api/v1/query_range",
+            params={
+                "query": f'{{service="{service}-service"}}',
+                "start": str(start_ns),
+                "end": str(end_ns),
+                "limit": limit,
+                "direction": "backward",
+            },
+            timeout=3.0,
+        )
+        response.raise_for_status()
+    except req.RequestException as e:
+        print(f"[WARN] Could not query Loki for {service}: {e}")
+        return jsonify({"error": "Loki is unavailable; start the local observability stack and try again."}), 503
+
+    result = response.json().get("data", {}).get("result", [])
+    logs = [
+        {
+            "timestamp": datetime.fromtimestamp(int(timestamp) / 1_000_000_000, timezone.utc).isoformat(),
+            "line": line[-4000:],
+        }
+        for stream in result
+        for timestamp, line in stream.get("values", [])
+    ]
+    logs.sort(key=lambda entry: entry["timestamp"], reverse=True)
+    return jsonify({
+        "workload": workload,
+        "service": service,
+        "source": "loki",
+        "logs": logs[:limit],
+        "count": min(len(logs), limit),
+    })
 
 
 @app.route("/api/fault-events", methods=["POST"])

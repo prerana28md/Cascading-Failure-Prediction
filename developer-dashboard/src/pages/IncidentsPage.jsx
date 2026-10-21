@@ -265,9 +265,9 @@ export default function IncidentsPage({ data, loading, onRefresh, workload = 'om
           {/* Microservice Live KPI Summary */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
             <div className="bg-slate-950/60 rounded-lg p-2.5 border border-slate-800/80">
-              <span className="text-[10px] text-slate-500">Error Rate</span>
-              <p className={`font-mono font-bold mt-0.5 ${(selMetrics?.error_rate_5xx ?? 0) > 0.01 ? 'text-red-400' : 'text-slate-200'}`}>
-                {fmtMetric(selMetrics?.error_rate_5xx ?? 0, 'rate')}
+              <span className="text-[10px] text-slate-500">5xx Error Rate</span>
+              <p className={`font-mono font-bold mt-0.5 ${(selMetrics?.error_rate_pct ?? 0) > 1 ? 'text-red-400' : 'text-slate-200'}`}>
+                {selMetrics?.error_rate_pct == null ? 'No traffic' : `${selMetrics.error_rate_pct.toFixed(2)}%`}
               </p>
             </div>
             <div className="bg-slate-950/60 rounded-lg p-2.5 border border-slate-800/80">

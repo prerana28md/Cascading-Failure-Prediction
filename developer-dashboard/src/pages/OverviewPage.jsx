@@ -12,18 +12,25 @@ import { deriveServiceKeys } from '../lib/api'
 
 export default function OverviewPage({ data, riskHistory, metricHistory, loading, setPage }) {
   const systemStatus    = deriveSystemStatus(data)
-  const riskLevel       = data?.risk_level          ?? 'LOW'
+  const riskLevel       = data?.system?.prometheus_connected === false
+    && (data?.system?.num_services_down ?? 0) === 0
+    ? 'UNKNOWN'
+    : data?.risk_level ?? 'LOW'
   const confidence      = data?.confidence          ?? null
   const confPct         = confidence != null ? (confidence * 100).toFixed(1) : null
-  const affectedPct     = data?.affected_percentage ?? 0
+  const serviceKeys     = deriveServiceKeys(data?.live_metrics)
+  const affectedCount   = data?.affected_services ?? 0
+  const affectedPct     = data?.affected_service_percentage
+    ?? (serviceKeys.length ? affectedCount / serviceKeys.length * 100 : 0)
   const criticalityPct  = data?.criticality_percentage ?? affectedPct
   const recommendations = data?.recommendations     ?? []
 
-  const serviceKeys = deriveServiceKeys(data?.live_metrics)
   const liveMetrics = data?.live_metrics ?? {}
   const incidents   = data?.incident_log ?? []
   const importances = data?.feature_importances ?? []
   const numDown     = data?.system?.num_services_down ?? 0
+  const servicesUp  = serviceKeys.filter(service => liveMetrics[service]?.service_up === 1).length
+  const hasMetrics  = data?.system?.prometheus_connected !== false
 
   // sparkline: riskHistory[].risk is already 0-100 (stored as criticalityPct in App.jsx)
   const sparkData = riskHistory.map((h, i) => ({
@@ -49,10 +56,18 @@ export default function OverviewPage({ data, riskHistory, metricHistory, loading
           <p className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">System Status</p>
           <SystemStatus status={systemStatus} loading={loading} />
           <div className="grid grid-cols-2 gap-3 mt-1 text-xs">
-            <KpiCell label="Services Up"      value={loading ? '—' : `${serviceKeys.length - numDown} / ${serviceKeys.length}`} warn={numDown > 0} />
+            <KpiCell label="Services Up"      value={loading ? '—' : `${hasMetrics ? servicesUp : '—'} / ${serviceKeys.length}`} warn={numDown > 0} />
             <KpiCell label="Active Incidents" value={loading ? '—' : String(activeIncidents.length)} warn={activeIncidents.length > 0} />
-            <KpiCell label="Affected"         value={loading ? '—' : `${Number(affectedPct).toFixed(1)}%`}  warn={affectedPct > 0} />
-            <KpiCell label="Mean Error Rate"  value={loading ? '—' : fmtRate(data?.system?.mean_error_rate)}  warn={(data?.system?.mean_error_rate ?? 0) > 0.01} />
+            <KpiCell
+              label="Services affected"
+              value={loading ? '—' : !hasMetrics ? 'No metrics' : `${Number(affectedPct).toFixed(1)}% (${affectedCount}/${serviceKeys.length})`}
+              warn={affectedCount > 0}
+            />
+            <KpiCell
+              label="Overall 5xx Error Rate"
+              value={loading ? '—' : fmtPercent(data?.system?.error_rate_pct, hasMetrics)}
+              warn={(data?.system?.error_rate_pct ?? 0) > 1}
+            />
             <KpiCell label="Max P99 Latency"  value={loading ? '—' : fmtMs(data?.system?.max_p99_latency)}    warn={(data?.system?.max_p99_latency ?? 0) > 1} />
           </div>
         </div>
@@ -65,7 +80,7 @@ export default function OverviewPage({ data, riskHistory, metricHistory, loading
           ) : (
             <div className="flex items-end gap-3">
               <span className="text-5xl font-black font-mono leading-none" style={{ color: riskColor }}>
-                {Number(criticalityPct).toFixed(1)}%
+                {hasMetrics || numDown > 0 ? `${Number(criticalityPct).toFixed(1)}%` : 'No metrics'}
               </span>
               <div className="mb-1 space-y-0.5">
                 <p className="text-lg font-bold" style={{ color: riskColor }}>{riskLevel}</p>
@@ -75,7 +90,7 @@ export default function OverviewPage({ data, riskHistory, metricHistory, loading
           )}
           <div className="h-2 w-full bg-slate-800/60 rounded-full overflow-hidden border border-slate-700/50">
             <div className="h-full rounded-full transition-all duration-700"
-              style={{ width: `${Math.min(100, Math.max(0, criticalityPct))}%`, backgroundColor: riskColor }} />
+              style={{ width: `${hasMetrics || numDown > 0 ? Math.min(100, Math.max(0, criticalityPct)) : 0}%`, backgroundColor: riskColor }} />
           </div>
           {sparkData.length > 1 && (
             <div className="h-12 mt-1">
@@ -314,9 +329,10 @@ function riskBg(level) {
   }[level] ?? 'border-slate-800 bg-slate-900'
 }
 
-function fmtRate(v) {
-  if (v == null) return '—'
-  return `${(+v).toFixed(4)}/s`
+function fmtPercent(v, metricsAvailable) {
+  if (metricsAvailable === false) return 'No metrics'
+  if (v == null) return 'No traffic'
+  return `${(+v).toFixed(2)}%`
 }
 
 function fmtMs(v) {

@@ -1,6 +1,6 @@
 # OmniStore Microservices Platform
 
-Full-stack Spring Boot 3.5 + MongoDB Atlas + React 19 microservices platform. Foundation for the **Cascading Failure Prediction** research project.
+Full-stack Spring Boot 3.5 + MongoDB + React 19 microservices platform. Foundation for the **Cascading Failure Prediction** research project. Docker Compose uses a local MongoDB by default; Atlas or another MongoDB URI can be explicitly configured per service.
 
 ---
 
@@ -42,10 +42,13 @@ Observability (all services → these):
 | grafana              | 3001  | Observability dashboards      |
 | loki                 | 3100  | Log aggregation               |
 | jaeger               | 16686 | Distributed trace UI          |
+| mongodb              | 27017 | Persistent local application data |
 
 ---
 
 ## Run locally (no Docker)
+
+Start a local MongoDB server on `localhost:27017` before launching the Spring services.
 
 ```bash
 # 1. Build all Spring Boot JARs
@@ -75,12 +78,15 @@ cd MicroService
 # Build JARs first (Dockerfiles copy pre-built JAR from target/)
 mvn clean package -DskipTests
 
-# Start everything — microservices + observability stack
+# Start everything — local MongoDB, microservices + observability stack
 docker compose up --build
 ```
 
+MongoDB data is persisted in the `mongodb-data` Docker volume. The default database URI is local to the Compose network, so application reads and writes do not require Internet access. Each service can be pointed at another MongoDB deployment with its corresponding `*_MONGODB_URI` environment variable (for example `ORDER_MONGODB_URI`).
+For a fully offline startup, the MongoDB and application images plus Maven dependencies must already be cached locally; the first image/dependency build may require downloads.
+
 Startup order (automatic via health checks):
-1. Jaeger, Prometheus, Loki → start immediately
+1. Jaeger, Prometheus, Loki, MongoDB → start immediately
 2. Promtail, Grafana → after Loki
 3. Leaf services (notification, delivery, inventory)
 4. Mid-tier (payment, shipping)
@@ -175,7 +181,7 @@ Setup:
 
 ## Roadmap
 
-- [x] 7 Spring Boot microservices (MongoDB Atlas)
+- [x] 7 Spring Boot microservices (local MongoDB by default; external MongoDB URI configurable)
 - [x] Full order cascade: Order→Inventory→Payment→Shipping→Delivery→Notification
 - [x] Custom API Gateway proxy with fault route rewriting
 - [x] React 19 frontend (9 views, RBAC, mock fallback, order lifecycle tracker)

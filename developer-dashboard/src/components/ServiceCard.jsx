@@ -52,6 +52,9 @@ export default function ServiceCard({
     DOWN:     '#f87171',
     UNKNOWN:  '#64748b',
   }[status]
+  const requestRate = metrics?.request_rate ?? 0
+  const errorPct = metrics?.error_rate_pct
+    ?? (requestRate > 0 ? (metrics?.error_rate_5xx ?? 0) / requestRate * 100 : null)
 
   const cardClass = [
     'rounded-lg border bg-slate-900 transition-colors',
@@ -79,7 +82,7 @@ export default function ServiceCard({
       {metrics ? (
         <>
           <div className={`grid gap-x-4 gap-y-1.5 text-xs ${compact ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3'}`}>
-            <Metric label="Error Rate" value={fmtMetric(metrics.error_rate_5xx, 'rate')} warn={(metrics.error_rate_5xx ?? 0) > 0.01} />
+            <Metric label="5xx Error %" value={errorPct == null ? 'No traffic' : `${errorPct.toFixed(2)}%`} warn={errorPct > 1} />
             <Metric label="P99 Latency" value={fmtMetric(metrics.p99_latency_s, 'latency')} warn={(metrics.p99_latency_s ?? 0) > 0.8} />
             {!compact && <Metric label="Req Rate" value={fmtMetric(metrics.request_rate, 'rate')} />}
           </div>
@@ -152,7 +155,7 @@ export function ServiceDetailPanel({ serviceKey, metrics, history, incidents }) 
     .slice(0, 8)
 
   const latencyHistory = history.map(v => ({
-    v: typeof v === 'object' ? (v?.error_rate ?? 0) : (v ?? 0)
+    v: typeof v === 'object' ? (v?.error_rate_pct ?? null) : (v ?? 0)
   }))
 
   return (
@@ -172,7 +175,7 @@ export function ServiceDetailPanel({ serviceKey, metrics, history, incidents }) 
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-xs">
           {[
             { label: 'Request Rate',  value: fmtMetric(metrics.request_rate,   'rate')    },
-            { label: 'Error Rate',    value: fmtMetric(metrics.error_rate_5xx,  'rate'),    warn: (metrics.error_rate_5xx  ?? 0) > 0.01 },
+            { label: '5xx Error %', value: errorPct == null ? 'No traffic' : `${errorPct.toFixed(2)}%`, warn: errorPct > 1 },
             { label: 'P50 Latency',   value: fmtMetric(metrics.p50_latency_s,  'latency') },
             { label: 'P95 Latency',   value: fmtMetric(metrics.p95_latency_s,  'latency'), warn: (metrics.p95_latency_s   ?? 0) > 0.5  },
             { label: 'P99 Latency',   value: fmtMetric(metrics.p99_latency_s,  'latency'), warn: (metrics.p99_latency_s   ?? 0) > 0.8  },
@@ -191,7 +194,7 @@ export function ServiceDetailPanel({ serviceKey, metrics, history, incidents }) 
       {/* Latency sparkline */}
       {latencyHistory.length > 1 && (
         <div>
-          <p className="text-[10px] text-slate-500 mb-2">Error Rate Trend</p>
+          <p className="text-[10px] text-slate-500 mb-2">5xx Error % Trend</p>
           <div className="h-16">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={latencyHistory} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>

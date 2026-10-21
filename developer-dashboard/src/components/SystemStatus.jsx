@@ -47,9 +47,14 @@ export function deriveSystemStatus(data) {
   if (!data) return 'UNKNOWN'
   const level = data.risk_level ?? 'LOW'
   const down  = data.system?.num_services_down ?? 0
-  const maxErr = data.system?.max_error_rate ?? data.system?.mean_error_rate ?? 0
-  if (level === 'CRITICAL' || down >= 2 || maxErr >= 0.35) return 'CRITICAL'
-  if (level === 'HIGH'     || down >= 1 || level === 'MEDIUM' || maxErr >= 0.08) return 'DEGRADED'
+  if (
+    data.system?.prometheus_connected === false
+    && down === 0
+    && !['HIGH', 'CRITICAL'].includes(level)
+  ) return 'UNKNOWN'
+  const maxErrPct = data.system?.max_error_rate_pct ?? 0
+  if (level === 'CRITICAL' || down >= 2 || maxErrPct >= 35) return 'CRITICAL'
+  if (level === 'HIGH'     || down >= 1 || level === 'MEDIUM' || maxErrPct >= 8) return 'DEGRADED'
   return 'HEALTHY'
 }
 
@@ -76,12 +81,16 @@ export function StatusRow({ status = 'UNKNOWN' }) {
  */
 export function deriveServiceStatus(metrics) {
   if (!metrics) return 'UNKNOWN'
-  const up  = metrics.service_up ?? 1
-  const err = (metrics.error_rate_5xx ?? 0) < 0.001 ? 0 : (metrics.error_rate_5xx ?? 0)
+  const up  = metrics.service_up
+  const requestRate = metrics.request_rate ?? 0
+  const errPct = metrics.error_rate_pct
+    ?? (requestRate > 0 ? (metrics.error_rate_5xx ?? 0) / requestRate * 100 : 0)
   const p99 = (metrics.p99_latency_s  ?? 0) < 0.005 ? 0 : (metrics.p99_latency_s  ?? 0)
   if (up === 0)                   return 'DOWN'
-  if (err > 0.05 || p99 > 1.5)   return 'DEGRADED'
-  if (err > 0.01 || p99 > 0.8)   return 'WARNING'
+  if (metrics.metrics_available === false && up == null) return 'UNKNOWN'
+  if (up == null && metrics.metrics_available === true) return 'UNKNOWN'
+  if (errPct > 5 || p99 > 1.5)   return 'DEGRADED'
+  if (errPct > 1 || p99 > 0.8)   return 'WARNING'
   return 'HEALTHY'
 }
 

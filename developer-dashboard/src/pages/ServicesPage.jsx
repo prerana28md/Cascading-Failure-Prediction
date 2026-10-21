@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useCallback } from 'react'
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import {
   LineChart, Line, AreaChart, Area,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -9,8 +9,9 @@ import {
   Clock, Zap, Server, TrendingUp,
   ChevronRight, BarChart2, Cpu, Database,
   Flame, Play, Square, Shield,
+  FileText, RefreshCw, Search,
 } from 'lucide-react'
-import { deriveServiceKeys, fmtMetric, injectFault, resetFault } from '../lib/api'
+import { deriveServiceKeys, fetchServiceLogs, fmtMetric, injectFault, resetFault } from '../lib/api'
 import { deriveServiceStatus, SERVICE_STATUS_CFG } from '../components/SystemStatus'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -59,6 +60,11 @@ function toLabel(key) {
   return key.split(/[-_]/).map(w => w[0].toUpperCase() + w.slice(1)).join(' ') + ' Service'
 }
 function clean(v, floor = 0)  { return (v ?? 0) < floor ? 0 : (v ?? 0) }
+function errorPercentage(metrics) {
+  if (metrics?.error_rate_pct != null) return Number(metrics.error_rate_pct)
+  const requests = Number(metrics?.request_rate ?? 0)
+  return requests > 0 ? Number(metrics?.error_rate_5xx ?? 0) / requests * 100 : null
+}
 function getPort(key) {
   return {
     order: 8081,
@@ -172,7 +178,7 @@ function FaultControl({ serviceKey, faultState, onFaultChange }) {
 
 // ── ① COMPARATIVE MULTI-SERVICE CHART ────────────────────────────────────────
 // Shows all services in one graph, different colour per line.
-// metric: 'error_rate' | 'p99' | 'request_rate'
+// metric: 'error_rate_pct' | 'p99' | 'request_rate' | 'availability_pct'
 function ComparativeChart({ metricHistory, serviceKeys, metric, title, unit, slaMap }) {
   // Build unified time series: each point has a slot per service
   const chartData = useMemo(() => {
@@ -198,11 +204,11 @@ function ComparativeChart({ metricHistory, serviceKeys, metric, title, unit, sla
       const pt = { time }
       serviceKeys.forEach(k => {
         const snap = aligned[k][i]
-        const raw  = snap ? (snap[metric] ?? 0) : null
+        const raw  = snap ? (snap[metric] ?? null) : null
         // Apply noise floor — show null (gap) when value is below threshold so
         // chart doesn't draw a spurious flat zero line; shows actual gaps instead
         pt[k] = raw === null ? null
-              : metric === 'error_rate' && raw < NOISE_ERR ? 0
+              : metric === 'error_rate_pct' && raw < 0.001 ? 0
               : metric === 'p99'        && raw < NOISE_P99 ? 0
               : metric === 'request_rate' && raw < NOISE_RR ? 0
               : parseFloat(raw.toFixed(5))
@@ -238,7 +244,13 @@ function ComparativeChart({ metricHistory, serviceKeys, metric, title, unit, sla
             interval={tickInterval}
             tickLine={false}
           />
-          <YAxis tick={{ fontSize: 8, fill: '#475569' }} tickLine={false} />
+          <YAxis
+            domain={metric === 'availability_pct' ? [0, 100] : undefined}
+            ticks={metric === 'availability_pct' ? [0, 100] : undefined}
+            tickFormatter={metric === 'availability_pct' ? value => value === 100 ? 'UP' : 'DOWN' : undefined}
+            tick={{ fontSize: 8, fill: '#475569' }}
+            tickLine={false}
+          />
           <Tooltip content={<ChartTooltip />} />
           <Legend
             iconSize={8}
@@ -258,9 +270,10 @@ function ComparativeChart({ metricHistory, serviceKeys, metric, title, unit, sla
           {serviceKeys.map(k => (
             <Line
               key={k}
-              type="monotone"
+              type={metric === 'availability_pct' ? 'stepAfter' : 'monotone'}
               dataKey={k}
               name={k}
+              unit={unit}
               stroke={SERVICE_COLOR[k] ?? '#64748b'}
               strokeWidth={1.8}
               dot={false}
@@ -276,13 +289,14 @@ function ComparativeChart({ metricHistory, serviceKeys, metric, title, unit, sla
 
 // ── ② SINGLE-SERVICE HISTORY CHART ───────────────────────────────────────────
 // Persistent 120-point buffer — never clears on backend recovery flush.
-function ServiceHistoryChart({ snapshots, metric, color, title, unit, slaLine }) {
+function ServiceHistoryChart({ snapshots, metric, color, title, unit, slaLine, availability = false }) {
   const data = useMemo(() => (snapshots ?? []).map((s, i) => ({
     i,
     time: s.time ?? '',
     v: (() => {
-      const raw = s[metric] ?? 0
-      if (metric === 'error_rate'   && raw < NOISE_ERR) return 0
+      const raw = s[metric]
+      if (raw == null) return null
+      if (metric === 'error_rate_pct' && raw < 0.001) return 0
       if (metric === 'p99'          && raw < NOISE_P99) return 0
       if (metric === 'request_rate' && raw < NOISE_RR)  return 0
       return parseFloat(raw.toFixed(5))
@@ -321,18 +335,25 @@ function ServiceHistoryChart({ snapshots, metric, color, title, unit, slaLine })
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey="time" tick={{ fontSize: 7, fill: '#475569' }} interval={tickInterval} tickLine={false} />
-            <YAxis tick={{ fontSize: 7, fill: '#475569' }} tickLine={false} />
+            <YAxis
+              domain={availability ? [0, 100] : undefined}
+              ticks={availability ? [0, 100] : undefined}
+              tickFormatter={availability ? value => value === 100 ? 'UP' : 'DOWN' : undefined}
+              tick={{ fontSize: 7, fill: '#475569' }}
+              tickLine={false}
+            />
             <Tooltip content={<ChartTooltip />} />
             {slaLine != null && (
               <ReferenceLine y={slaLine} stroke="#f59e0b" strokeDasharray="3 3" strokeWidth={1} />
             )}
             <Area
-              type="monotone"
               dataKey="v"
               name={title}
+              unit={unit}
               stroke={color}
               fill={`url(#grad-${metric}-${color.replace('#','')})`}
               strokeWidth={1.8}
+              type={availability ? 'stepAfter' : 'monotone'}
               dot={false}
               isAnimationActive={false}
               connectNulls={false}
@@ -349,14 +370,14 @@ function ServiceGridCard({ serviceKey, metrics, snapshots, selected, onClick, fa
   const status = deriveServiceStatus(metrics)
   const cfg    = SERVICE_STATUS_CFG[status] ?? SERVICE_STATUS_CFG.UNKNOWN
   const color  = SERVICE_COLOR[serviceKey] ?? '#6366f1'
-  const err    = clean(metrics?.error_rate_5xx, NOISE_ERR)
+  const errPct = errorPercentage(metrics)
   const p99    = clean(metrics?.p99_latency_s, NOISE_P99)
   const rr     = clean(metrics?.request_rate, NOISE_RR)
   const sla    = SLA[serviceKey] ?? { maxErr: 0.01, maxP99: 1.0 }
 
   // Sparkline from live snapshots
   const spark = (snapshots ?? []).slice(-30).map(s => ({
-    v: clean(s.error_rate, NOISE_ERR)
+    v: s.error_rate_pct == null ? null : Number(s.error_rate_pct)
   }))
 
   return (
@@ -389,9 +410,9 @@ function ServiceGridCard({ serviceKey, metrics, snapshots, selected, onClick, fa
       {/* Metrics */}
       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
         <div>
-          <p className="text-slate-500">Err Rate</p>
-          <p className={`font-mono font-bold ${err > sla.maxErr ? 'text-red-400' : 'text-slate-200'}`}>
-            {err === 0 ? '0/s' : fmtMetric(err, 'rate')}
+          <p className="text-slate-500">5xx Errors</p>
+          <p className={`font-mono font-bold ${(errPct ?? 0) > sla.maxErr * 100 ? 'text-red-400' : 'text-slate-200'}`}>
+            {errPct == null ? 'No traffic' : `${errPct.toFixed(2)}%`}
           </p>
         </div>
         <div>
@@ -433,14 +454,14 @@ function ServiceGridCard({ serviceKey, metrics, snapshots, selected, onClick, fa
 }
 
 // ── Detail panel (right column) ───────────────────────────────────────────────
-function ServiceDetailPanel({ serviceKey, metrics, snapshots, incidents, slaData, faultState, onFaultChange }) {
+function ServiceDetailPanel({ serviceKey, workload, metrics, snapshots, incidents, slaData, faultState, onFaultChange }) {
   const [tab, setTab] = useState('charts')
   const status = deriveServiceStatus(metrics)
   const cfg    = SERVICE_STATUS_CFG[status] ?? SERVICE_STATUS_CFG.UNKNOWN
   const color  = SERVICE_COLOR[serviceKey] ?? '#6366f1'
   const sla    = SLA[serviceKey] ?? { maxErr: 0.01, maxP99: 1.0 }
 
-  const err    = clean(metrics?.error_rate_5xx, NOISE_ERR)
+  const errPct = errorPercentage(metrics)
   const p99    = clean(metrics?.p99_latency_s, NOISE_P99)
   const p50    = clean(metrics?.p50_latency_s, NOISE_P99)
   const rr     = clean(metrics?.request_rate, NOISE_RR)
@@ -455,6 +476,7 @@ function ServiceDetailPanel({ serviceKey, metrics, snapshots, incidents, slaData
     { id: 'overview',  label: 'Overview'       },
     { id: 'sla',       label: 'SLA'            },
     { id: 'incidents', label: 'Incidents'      },
+    { id: 'logs',      label: 'Service Logs'   },
     { id: 'fault',     label: '⚡ Fault'       },
   ]
 
@@ -490,7 +512,7 @@ function ServiceDetailPanel({ serviceKey, metrics, snapshots, incidents, slaData
         {/* KPI row */}
         <div className="grid grid-cols-3 gap-3 mt-3">
           {[
-            { label: 'Error Rate',  value: err  === 0 ? '0/s'  : fmtMetric(err, 'rate'),    warn: err  > sla.maxErr,  crit: err  > sla.maxErr * 5  },
+            { label: '5xx Error Rate', value: errPct == null ? 'No traffic' : `${errPct.toFixed(2)}%`, warn: (errPct ?? 0) > sla.maxErr * 100, crit: (errPct ?? 0) > sla.maxErr * 500 },
             { label: 'P99 Latency', value: p99  === 0 ? '0ms'  : fmtMetric(p99, 'latency'), warn: p99  > sla.maxP99,  crit: p99  > sla.maxP99 * 2  },
             { label: 'Req Rate',    value: rr   === 0 ? '0/s'  : fmtMetric(rr, 'rate'),     warn: false,              crit: false                   },
           ].map(k => (
@@ -532,11 +554,20 @@ function ServiceDetailPanel({ serviceKey, metrics, snapshots, incidents, slaData
 
             <ServiceHistoryChart
               snapshots={snapshots}
-              metric="error_rate"
+              metric="error_rate_pct"
               color={color}
-              title="Error Rate /s"
-              unit="/s"
-              slaLine={sla.maxErr}
+              title="5xx Error Rate"
+              unit="%"
+              slaLine={sla.maxErr * 100}
+            />
+            <ServiceHistoryChart
+              snapshots={snapshots}
+              metric="availability_pct"
+              color={metrics?.service_up === 0 ? '#f87171' : '#34d399'}
+              title="Service Availability"
+              unit="%"
+              slaLine={null}
+              availability
             />
             <ServiceHistoryChart
               snapshots={snapshots}
@@ -561,7 +592,7 @@ function ServiceDetailPanel({ serviceKey, metrics, snapshots, incidents, slaData
         {tab === 'overview' && (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <MetricBox label="Request Rate"   value={rr   === 0 ? '0/s'  : fmtMetric(rr, 'rate')}    icon={TrendingUp} />
-            <MetricBox label="Error Rate"     value={err  === 0 ? '0/s'  : fmtMetric(err, 'rate')}   icon={AlertTriangle} warn={err > sla.maxErr} />
+            <MetricBox label="5xx Error Rate" value={errPct == null ? 'No traffic' : `${errPct.toFixed(2)}%`} icon={AlertTriangle} warn={(errPct ?? 0) > sla.maxErr * 100} />
             <MetricBox label="P50 Latency"    value={p50  === 0 ? '0ms'  : fmtMetric(p50, 'latency')} icon={Clock} />
             <MetricBox label="P99 Latency"    value={p99  === 0 ? '0ms'  : fmtMetric(p99, 'latency')} icon={Clock} warn={p99 > sla.maxP99} />
             <MetricBox label="JVM Heap"       value={heap > 0 ? `${Math.round(heap)} MB` : '—'}       icon={Cpu} />
@@ -573,16 +604,24 @@ function ServiceDetailPanel({ serviceKey, metrics, snapshots, incidents, slaData
         {tab === 'sla' && (
           <div className="space-y-4">
             <div className="flex items-center gap-2">
-              <Shield size={13} className={svcSla?.sla_compliant === false ? 'text-red-400' : 'text-emerald-400'} />
-              <span className={`text-xs font-semibold ${svcSla?.sla_compliant === false ? 'text-red-300' : 'text-emerald-300'}`}>
-                {svcSla?.sla_compliant === false ? `BREACHED (${svcSla.breach_count} violation${svcSla.breach_count !== 1 ? 's' : ''})` : 'Within SLA'}
+              <Shield size={13} className={svcSla?.sla_compliant === false ? 'text-red-400' : svcSla?.sla_compliant == null ? 'text-amber-400' : 'text-emerald-400'} />
+              <span className={`text-xs font-semibold ${svcSla?.sla_compliant === false ? 'text-red-300' : svcSla?.sla_compliant == null ? 'text-amber-300' : 'text-emerald-300'}`}>
+                {svcSla?.sla_compliant === false
+                  ? `BREACHED (${svcSla.breach_count} violation${svcSla.breach_count !== 1 ? 's' : ''})`
+                  : svcSla?.sla_compliant == null ? 'METRICS UNAVAILABLE' : 'Within SLA'}
               </span>
             </div>
-            <div className="space-y-3">
-              <SlaBar label="Uptime"                                      value={metrics?.service_up === 0 ? 0 : 100} max={100} />
-              <SlaBar label={`Error Budget (limit: ${sla.maxErr}/s)`}    value={err} max={sla.maxErr} />
-              <SlaBar label={`Latency Budget (limit: ${sla.maxP99}s)`}   value={p99} max={sla.maxP99} />
-            </div>
+            {svcSla?.sla_compliant == null ? (
+              <p className="rounded bg-slate-800/50 p-3 text-[11px] text-slate-400">
+                SLA evaluation is paused until Prometheus metrics are available. Current chart values are not treated as healthy defaults.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <SlaBar label="Uptime" value={metrics?.service_up === 0 ? 0 : 100} max={100} />
+                <SlaBar label={`5xx Error Budget (limit: ${(sla.maxErr * 100).toFixed(2)}%)`} value={errPct ?? 0} max={sla.maxErr * 100} />
+                <SlaBar label={`Latency Budget (limit: ${sla.maxP99}s)`} value={p99} max={sla.maxP99} />
+              </div>
+            )}
             {svcSla?.breaches?.length > 0 && (
               <div className="space-y-1.5">
                 {svcSla.breaches.map((b, i) => (
@@ -598,7 +637,7 @@ function ServiceDetailPanel({ serviceKey, metrics, snapshots, incidents, slaData
               {[
                 { l: 'Uptime',       v: '≥ 99%'             },
                 { l: 'Max P99',      v: `≤ ${sla.maxP99}s`  },
-                { l: 'Max Err Rate', v: `≤ ${sla.maxErr}/s` },
+                { l: 'Max 5xx Error Rate', v: `≤ ${(sla.maxErr * 100).toFixed(2)}%` },
               ].map(t => (
                 <div key={t.l} className="flex justify-between font-mono">
                   <span className="text-slate-500">{t.l}</span>
@@ -641,6 +680,10 @@ function ServiceDetailPanel({ serviceKey, metrics, snapshots, incidents, slaData
           )
         )}
 
+        {tab === 'logs' && (
+          <ServiceLogsPanel key={`${workload}-${serviceKey}`} serviceKey={serviceKey} workload={workload} />
+        )}
+
         {/* ── Fault tab ── */}
         {tab === 'fault' && (
           <div className="space-y-4">
@@ -654,6 +697,121 @@ function ServiceDetailPanel({ serviceKey, metrics, snapshots, incidents, slaData
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function ServiceLogsPanel({ serviceKey, workload }) {
+  const [logs, setLogs] = useState([])
+  const [source, setSource] = useState(null)
+  const [error, setError] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [search, setSearch] = useState('')
+  const [level, setLevel] = useState('all')
+  const [updatedAt, setUpdatedAt] = useState(null)
+
+  const loadLogs = useCallback(async () => {
+    setLoading(true)
+    const { data, error: requestError } = await fetchServiceLogs(serviceKey, workload)
+    setLoading(false)
+    if (requestError) {
+      setError(requestError)
+      return
+    }
+    setError(null)
+    setLogs(data?.logs ?? [])
+    setSource(data?.source ?? null)
+    setUpdatedAt(new Date())
+  }, [serviceKey, workload])
+
+  useEffect(() => {
+    loadLogs()
+    const timer = setInterval(loadLogs, 15000)
+    return () => clearInterval(timer)
+  }, [loadLogs])
+
+  const visibleLogs = logs.filter(({ line = '' }) => {
+    const matchesSearch = !search || line.toLowerCase().includes(search.toLowerCase())
+    const matchesLevel = level === 'all'
+      || (level === 'error' && /\b(error|fatal|critical|exception|traceback)\b/i.test(line))
+      || (level === 'warning' && /\b(warn|warning)\b/i.test(line))
+    return matchesSearch && matchesLevel
+  })
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-semibold text-slate-200">Recent application output</p>
+          <p className="text-[10px] text-slate-500">
+            {source === 'loki' ? 'Loki · last hour' : source === 'local-file' ? 'Local service log' : 'Service log source'}
+            {updatedAt ? ` · updated ${updatedAt.toLocaleTimeString()}` : ''}
+          </p>
+        </div>
+        <button
+          onClick={loadLogs}
+          disabled={loading}
+          className="flex items-center gap-1.5 rounded border border-slate-700 px-2.5 py-1.5 text-[10px] text-slate-300 hover:border-indigo-600 disabled:opacity-50"
+        >
+          <RefreshCw size={10} className={loading ? 'animate-spin' : ''} />
+          Refresh
+        </button>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <label className="flex min-w-0 flex-1 items-center gap-2 rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5">
+          <Search size={12} className="shrink-0 text-slate-500" />
+          <input
+            value={search}
+            onChange={event => setSearch(event.target.value)}
+            placeholder="Search this service's logs"
+            className="w-full bg-transparent text-[11px] text-slate-200 outline-none placeholder:text-slate-600"
+          />
+        </label>
+        <select
+          value={level}
+          onChange={event => setLevel(event.target.value)}
+          className="rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-[11px] text-slate-300"
+        >
+          <option value="all">All levels</option>
+          <option value="error">Errors</option>
+          <option value="warning">Warnings</option>
+        </select>
+      </div>
+
+      {error ? (
+        <div className="flex items-start gap-2 rounded border border-amber-900/60 bg-amber-950/20 p-3 text-[11px] text-amber-300">
+          <FileText size={13} className="mt-0.5 shrink-0" />
+          <span>Unable to load {serviceKey} logs: {error}. Check that Loki or the MovieStream service logger is running.</span>
+        </div>
+      ) : visibleLogs.length === 0 ? (
+        <div className="rounded border border-slate-800 bg-slate-950/60 p-6 text-center text-[11px] text-slate-500">
+          {loading ? 'Loading service logs…' : logs.length ? 'No log lines match these filters.' : 'No logs were found for this service in the selected source.'}
+        </div>
+      ) : (
+        <div className="max-h-[360px] overflow-auto rounded border border-slate-800 bg-slate-950/80">
+          <div className="sticky top-0 flex justify-between border-b border-slate-800 bg-slate-900 px-3 py-2 text-[10px] text-slate-500">
+            <span>{visibleLogs.length} lines shown</span>
+            <span>Newest first</span>
+          </div>
+          <div className="divide-y divide-slate-800/60">
+            {visibleLogs.map((entry, index) => {
+              const isError = /\b(error|fatal|critical|exception|traceback)\b/i.test(entry.line)
+              const isWarning = !isError && /\b(warn|warning)\b/i.test(entry.line)
+              return (
+                <div key={`${entry.timestamp ?? 'local'}-${index}`} className="flex gap-3 px-3 py-2 font-mono text-[10px]">
+                  <span className="shrink-0 text-slate-600">
+                    {entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : 'LOCAL'}
+                  </span>
+                  <span className={`whitespace-pre-wrap break-all ${isError ? 'text-red-300' : isWarning ? 'text-amber-300' : 'text-slate-300'}`}>
+                    {entry.line}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -681,7 +839,7 @@ function ComparisonTable({ serviceKeys, liveMetrics, cascadePath, rootCauses }) 
               const m      = liveMetrics[key]
               const status = deriveServiceStatus(m)
               const cfg    = SERVICE_STATUS_CFG[status] ?? SERVICE_STATUS_CFG.UNKNOWN
-              const err    = clean(m?.error_rate_5xx, NOISE_ERR)
+              const errPct = errorPercentage(m)
               const p99    = clean(m?.p99_latency_s, NOISE_P99)
               const rr     = clean(m?.request_rate, NOISE_RR)
               const sla    = SLA[key] ?? { maxErr: 0.01, maxP99: 1.0 }
@@ -707,8 +865,8 @@ function ComparisonTable({ serviceKeys, liveMetrics, cascadePath, rootCauses }) 
                     </span>
                   </td>
                   <td className="px-4 py-2.5 font-mono">
-                    <span className={err > sla.maxErr ? 'text-red-400 font-bold' : 'text-slate-300'}>
-                      {err === 0 ? '0/s' : fmtMetric(err, 'rate')}
+                    <span className={(errPct ?? 0) > sla.maxErr * 100 ? 'text-red-400 font-bold' : 'text-slate-300'}>
+                      {errPct == null ? 'No traffic' : `${errPct.toFixed(2)}%`}
                     </span>
                   </td>
                   <td className="px-4 py-2.5 font-mono">
@@ -742,7 +900,7 @@ export default function ServicesPage({ data, metricHistory, loading }) {
   const [sortBy,      setSortBy]      = useState('name')
   const [filterStat,  setFilterStat]  = useState('ALL')
   const [faultStates, setFaultStates] = useState({})
-  const [compMetric,  setCompMetric]  = useState('error_rate')
+  const [compMetric,  setCompMetric]  = useState('error_rate_pct')
 
   const activeKey    = selected ?? serviceKeys[0] ?? null
   const detailRef    = useRef(null)
@@ -765,7 +923,7 @@ export default function ServicesPage({ data, metricHistory, loading }) {
         const ma = liveMetrics[a], mb = liveMetrics[b]
         switch (sortBy) {
           case 'status':    return (statusOrder[deriveServiceStatus(ma)] ?? 9) - (statusOrder[deriveServiceStatus(mb)] ?? 9)
-          case 'errorRate': return clean(mb?.error_rate_5xx) - clean(ma?.error_rate_5xx)
+          case 'errorRate': return (errorPercentage(mb) ?? -1) - (errorPercentage(ma) ?? -1)
           case 'latency':   return clean(mb?.p99_latency_s, NOISE_P99) - clean(ma?.p99_latency_s, NOISE_P99)
           default:          return a.localeCompare(b)
         }
@@ -782,9 +940,10 @@ export default function ServicesPage({ data, metricHistory, loading }) {
 
   // SLA map for comparative chart reference lines
   const slaLineMap = {
-    error_rate:   Object.fromEntries(serviceKeys.map(k => [k, SLA[k]?.maxErr ?? 0.01])),
+    error_rate_pct: Object.fromEntries(serviceKeys.map(k => [k, (SLA[k]?.maxErr ?? 0.01) * 100])),
     p99:          Object.fromEntries(serviceKeys.map(k => [k, SLA[k]?.maxP99 ?? 1.0])),
     request_rate: null,
+    availability_pct: null,
   }
 
   if (loading && !serviceKeys.length) {
@@ -799,9 +958,10 @@ export default function ServicesPage({ data, metricHistory, loading }) {
   }
 
   const COMP_METRICS = [
-    { key: 'error_rate',   label: 'Error Rate'   },
+    { key: 'error_rate_pct', label: '5xx Error %' },
     { key: 'p99',          label: 'P99 Latency'  },
     { key: 'request_rate', label: 'Request Rate' },
+    { key: 'availability_pct', label: 'Availability' },
   ]
 
   return (
@@ -837,7 +997,7 @@ export default function ServicesPage({ data, metricHistory, loading }) {
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <p className="text-xs font-semibold text-slate-300">All Services — Comparative History</p>
-            <p className="text-[11px] text-slate-500 mt-0.5">Each colour = one service · dashed line = SLA limit · gaps = no traffic</p>
+            <p className="text-[11px] text-slate-500 mt-0.5">Each colour = one service · dashed line = SLA limit · no-traffic error samples are gaps</p>
           </div>
           <div className="flex items-center gap-1.5 bg-slate-800/60 rounded-lg border border-slate-700 p-0.5">
             {COMP_METRICS.map(m => (
@@ -853,7 +1013,7 @@ export default function ServicesPage({ data, metricHistory, loading }) {
           serviceKeys={serviceKeys}
           metric={compMetric}
           title={COMP_METRICS.find(m => m.key === compMetric)?.label ?? ''}
-          unit=""
+          unit={compMetric === 'error_rate_pct' || compMetric === 'availability_pct' ? '%' : ''}
           slaMap={slaLineMap[compMetric]}
         />
       </div>
@@ -885,6 +1045,7 @@ export default function ServicesPage({ data, metricHistory, loading }) {
             {activeKey ? (
               <ServiceDetailPanel
                 serviceKey={activeKey}
+                workload={data?.workload ?? 'omnistore'}
                 metrics={liveMetrics[activeKey]}
                 snapshots={metricHistory[activeKey] ?? []}
                 incidents={incidents}

@@ -1,5 +1,7 @@
 import unittest
+import tempfile
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import patch
 
 try:
@@ -186,10 +188,62 @@ class FaultIntelligenceTests(unittest.TestCase):
         # Severity for 5% error rate should be MODERATE or MINOR, NOT CRITICAL
         self.assertNotEqual(criticality["severity"], "CRITICAL")
 
-        pipeline_res = api.full_pipeline(test_raw)
+        with patch.object(api, "_save_incident_log"), patch.object(api, "_save_fault_events"), patch.object(api, "_append_incident"):
+            pipeline_res = api.full_pipeline(test_raw)
         # Risk level should NOT be CRITICAL for a 5% error rate
         self.assertNotEqual(pipeline_res["risk_level"], "CRITICAL")
         self.assertIn(pipeline_res["risk_level"], ("LOW", "MEDIUM", "MODERATE", "DEGRADED"))
+
+    def test_error_impact_uses_error_ratio_not_absolute_error_rate(self):
+        low_traffic = dict(self.raw, payment_request_rate=1.0, payment_error_rate_5xx=0.02)
+        high_traffic = dict(self.raw, payment_request_rate=100.0, payment_error_rate_5xx=2.0)
+
+        low_impact = api.impact_analysis(low_traffic)
+        high_impact = api.impact_analysis(high_traffic)
+
+        self.assertEqual(low_impact["services"]["payment"], high_impact["services"]["payment"])
+
+    def test_dashboard_percentage_reports_share_of_affected_services(self):
+        test_raw = dict(self.raw, payment_request_rate=1.0, payment_error_rate_5xx=0.05)
+        with patch.object(api, "_save_incident_log"), patch.object(api, "_save_fault_events"), patch.object(api, "_append_incident"):
+            result = api.full_pipeline(test_raw)
+
+        self.assertEqual(result["affected_services"], 1)
+        self.assertAlmostEqual(result["affected_service_percentage"], 100 / len(api.SERVICES), places=1)
+        self.assertEqual(result["live_metrics"]["payment"]["error_rate_pct"], 5.0)
+
+    def test_unavailable_prometheus_does_not_report_healthy_metrics(self):
+        test_raw = dict(self.raw, prometheus_connected=False)
+        with patch.object(api, "_save_incident_log"), patch.object(api, "_save_fault_events"), patch.object(api, "_append_incident"):
+            result = api.full_pipeline(test_raw)
+
+        self.assertIsNone(result["live_metrics"]["order"]["service_up"])
+        self.assertFalse(result["sla_compliance"]["services"]["order"]["metrics_available"])
+        self.assertTrue(any("Prometheus metrics are unavailable" == item["title"] for item in result["recommendations"]))
+
+    def test_moviestream_service_logs_are_read_from_local_files(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            Path(temp_dir, "catalog-service.log").write_text(
+                "INFO catalog ready\nERROR catalog query failed\n",
+                encoding="utf-8",
+            )
+            with patch.object(api, "MOVIESTREAM_LOG_DIR", temp_dir):
+                response = api.app.test_client().get(
+                    "/api/service-logs?workload=moviestream&service=catalog&limit=1"
+                )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["source"], "local-file")
+        self.assertEqual(payload["count"], 1)
+        self.assertIn("ERROR", payload["logs"][0]["line"])
+
+    def test_service_logs_reject_services_outside_the_workload(self):
+        response = api.app.test_client().get(
+            "/api/service-logs?workload=moviestream&service=order"
+        )
+
+        self.assertEqual(response.status_code, 400)
 
 
 if __name__ == "__main__":
