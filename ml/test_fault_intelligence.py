@@ -32,6 +32,34 @@ class FaultIntelligenceTests(unittest.TestCase):
             "timestamp": iso_timestamp,
         })
 
+    def test_prometheus_scrape_batches_metrics_and_scopes_to_workload(self):
+        def metric_series(query, label_name):
+            if label_name == "application":
+                self.assertIn("application=~", query)
+            else:
+                self.assertEqual(label_name, "job")
+            if "http_server_requests_seconds_count" in query and 'status=~"5.."' not in query and 'status=~"4.."' not in query:
+                return {"order-service": 3.5, "payment-service": 8.0}
+            if label_name == "job":
+                return {"order-service": 1.0, "payment-service": 1.0}
+            return {"order-service": 0.0, "payment-service": 0.0}
+
+        with (
+            patch.object(api, "_is_prometheus_up", return_value=True),
+            patch.object(api, "_prom_series", side_effect=metric_series) as query,
+            patch.object(api, "_probe_service_faults", return_value={
+                "order": {"fault": "NONE", "delayMs": 0, "probed": True},
+                "payment": {"fault": "NONE", "delayMs": 0, "probed": True},
+            }),
+        ):
+            raw = api.scrape("omnistore")
+
+        self.assertEqual(query.call_count, 9)
+        self.assertEqual(raw["order_request_rate"], 3.5)
+        self.assertEqual(raw["payment_request_rate"], 8.0)
+        self.assertNotIn("catalog_request_rate", raw)
+        self.assertTrue(all("catalog-service" not in call.args[0] for call in query.call_args_list))
+
     def test_healthy_system_has_minimum_score(self):
         impact = api.impact_analysis(self.raw)
         score = api.criticality_analysis(self.raw, impact)
@@ -147,6 +175,28 @@ class FaultIntelligenceTests(unittest.TestCase):
 
         self.assertEqual({event["service"] for event in pipeline_res["fault_events"]}, {"order"})
         self.assertEqual(pipeline_res["fault_events"][0]["active_faults"], 1)
+
+    def test_moviestream_pipeline_excludes_omnistore_model_factors(self):
+        movie_raw = {}
+        for service in api.WORKLOAD_SERVICES["moviestream"]:
+            movie_raw[f"{service}_service_up"] = 1.0
+            movie_raw[f"{service}_error_rate_5xx"] = 0.0
+            movie_raw[f"{service}_error_rate_4xx"] = 0.0
+            movie_raw[f"{service}_request_rate"] = 1.0
+            movie_raw[f"{service}_p99_latency_s"] = 0.05
+            movie_raw[f"{service}_p50_latency_s"] = 0.01
+            movie_raw[f"{service}_fault"] = "NONE"
+            movie_raw[f"{service}_fault_delay_ms"] = 0
+
+        with patch.object(api, "_save_incident_log"), patch.object(api, "_save_fault_events"):
+            result = api.full_pipeline(movie_raw, workload="moviestream")
+
+        self.assertEqual(result["feature_importances"], [])
+        self.assertEqual(
+            {node["id"] for node in result["networkx_graph"]["nodes"]},
+            set(api.WORKLOAD_SERVICES["moviestream"]),
+        )
+        self.assertTrue(all("cascade_effect_pct" not in node for node in result["networkx_graph"]["nodes"]))
 
     def test_incident_history_is_scoped_by_workload(self):
         previous_entries = api._incident_snapshot()

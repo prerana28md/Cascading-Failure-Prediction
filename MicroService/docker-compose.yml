@@ -107,15 +107,15 @@ services:
     image: mongo:7.0
     container_name: mongodb
     ports:
-      - "127.0.0.1:27017:27017"
+      - "127.0.0.1:${MONGODB_HOST_PORT:-27018}:27017"
     volumes:
       - mongodb-data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
-      interval: 10s
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/27017"]
+      interval: 20s
       timeout: 5s
       retries: 10
-      start_period: 15s
+      start_period: 30s
     restart: unless-stopped
     networks:
       cascade-net:
@@ -168,7 +168,7 @@ services:
       prometheus:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8086/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8086/actuator/health || exit 1"]
       <<: *spring-healthcheck
     restart: unless-stopped
     networks:
@@ -196,7 +196,7 @@ services:
       prometheus:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8085/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8085/actuator/health || exit 1"]
       <<: *spring-healthcheck
     restart: unless-stopped
     networks:
@@ -225,7 +225,7 @@ services:
       prometheus:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8083/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8083/actuator/health || exit 1"]
       <<: *spring-healthcheck
     restart: unless-stopped
     networks:
@@ -252,7 +252,7 @@ services:
       notification-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8082/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8082/actuator/health || exit 1"]
       <<: *spring-healthcheck
     restart: unless-stopped
     networks:
@@ -282,7 +282,7 @@ services:
       notification-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8084/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8084/actuator/health || exit 1"]
       <<: *spring-healthcheck
     restart: unless-stopped
     networks:
@@ -320,7 +320,7 @@ services:
       notification-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8081/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8081/actuator/health || exit 1"]
       <<: *spring-healthcheck
     restart: unless-stopped
     networks:
@@ -361,7 +361,7 @@ services:
       notification-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/actuator/health || exit 1"]
       <<: *spring-healthcheck
     restart: unless-stopped
     networks:

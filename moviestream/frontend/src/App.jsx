@@ -9,7 +9,6 @@ import Billboard from './components/Billboard'
 import MovieRow from './components/MovieRow'
 import MovieModal from './components/MovieModal'
 import VideoPlayerModal from './components/VideoPlayerModal'
-import HealthRadarModal from './components/HealthRadarModal'
 import {
   fetchBillboard,
   fetchTrending,
@@ -26,10 +25,7 @@ import {
   addToWatchlist,
   removeFromWatchlist,
   fetchProfiles,
-  checkMicroservicesHealth,
-  searchMovies,
-  fetchLiveSyncStatus,
-  triggerLiveSync
+  searchMovies
 } from './services/api'
 
 // Fallback seed catalog to ensure ZERO blank screen on refresh
@@ -146,6 +142,7 @@ function MovieStreamMain() {
 
   // User History & Recommendation Data State
   const [recommendations, setRecommendations] = useState(null)
+  const [recommendationMessage, setRecommendationMessage] = useState('')
   const [continueWatching, setContinueWatching] = useState([])
   const [watchlist, setWatchlist] = useState([])
   const [watchlistIds, setWatchlistIds] = useState(new Set())
@@ -158,16 +155,6 @@ function MovieStreamMain() {
   // Modals
   const [selectedMovie, setSelectedMovie] = useState(null)
   const [playingMovie, setPlayingMovie] = useState(null)
-  const [radarOpen, setRadarOpen] = useState(false)
-
-  // Health Radar & Live API Sync
-  const [healthStatuses, setHealthStatuses] = useState([])
-  const [refreshingRadar, setRefreshingRadar] = useState(false)
-  const [cascadeAlert, setCascadeAlert] = useState(null)
-  const [syncStatus, setSyncStatus] = useState(null)
-  const [isSyncing, setIsSyncing] = useState(false)
-  const [syncBanner, setSyncBanner] = useState(null)
-
   // Catalog loader function
   const loadCatalogData = useCallback(() => {
     fetchBillboard().then(res => {
@@ -202,38 +189,7 @@ function MovieStreamMain() {
     })
   }, [])
 
-  // Poll Live Sync Status
-  const pollSyncStatus = useCallback(() => {
-    fetchLiveSyncStatus().then(res => {
-      if (res.data) setSyncStatus(res.data)
-    })
-  }, [])
-
-  // Manual Trigger for Live API Sync
-  const handleTriggerSync = async () => {
-    setIsSyncing(true)
-    try {
-      const res = await triggerLiveSync()
-      if (res.data) {
-        setSyncStatus(prev => ({
-          ...(prev || {}),
-          totalLiveTitles: res.data.totalCatalogTitles,
-          lastSyncedAt: res.data.lastSyncedAt,
-          syncCount: res.data.syncCount
-        }))
-        setSyncBanner(`✨ Live API Auto-Sync: Harvested ${res.data.newTitlesAdded} new live titles in ${res.data.durationSeconds}s! Total live titles: ${res.data.totalCatalogTitles}`)
-        setTimeout(() => setSyncBanner(null), 8000)
-        // Refresh catalog rows
-        loadCatalogData()
-      }
-    } catch (e) {
-      console.error("Failed to trigger live sync:", e)
-    } finally {
-      setIsSyncing(false)
-    }
-  }
-
-  // 1. Initial Load: Profiles, Catalog & Live Sync Status
+  // 1. Initial Load: Profiles and Catalog
   useEffect(() => {
     fetchProfiles().then(res => {
       if (res.data && res.data.length > 0) {
@@ -246,11 +202,7 @@ function MovieStreamMain() {
     })
 
     loadCatalogData()
-    pollSyncStatus()
-
-    const syncInterval = setInterval(pollSyncStatus, 15000)
-    return () => clearInterval(syncInterval)
-  }, [loadCatalogData, pollSyncStatus])
+  }, [loadCatalogData])
 
   // 2. Load User Rows whenever activeProfile changes
   const loadUserRows = useCallback((userId) => {
@@ -259,9 +211,9 @@ function MovieStreamMain() {
     fetchRecommendations(userId).then(res => {
       if (res.data) {
         setRecommendations(res.data)
-        setCascadeAlert(null)
+        setRecommendationMessage('')
       } else if (res.error) {
-        setCascadeAlert(`Recommendation Service Degradation: ${res.error}`)
+        setRecommendationMessage('Personalized picks are temporarily unavailable. Please try again later.')
       }
     })
 
@@ -309,21 +261,7 @@ function MovieStreamMain() {
     }
   }, [searchQuery])
 
-  // 4. Observability Health Radar Polling
-  const pollHealth = useCallback(() => {
-    setRefreshingRadar(true)
-    checkMicroservicesHealth()
-      .then(statuses => setHealthStatuses(statuses))
-      .finally(() => setRefreshingRadar(false))
-  }, [])
-
-  useEffect(() => {
-    pollHealth()
-    const interval = setInterval(pollHealth, 10000)
-    return () => clearInterval(interval)
-  }, [pollHealth])
-
-  // 5. Watchlist Toggle Handler
+  // 4. Watchlist Toggle Handler
   const handleToggleWatchlist = async (movie) => {
     if (!activeProfile?.id || !movie?.id) return
 
@@ -379,44 +317,14 @@ function MovieStreamMain() {
         onSelectProfile={handleSelectProfile}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
-        healthStatuses={healthStatuses}
-        onOpenRadar={() => setRadarOpen(true)}
         activeTab={activeTab}
         onSelectTab={handleSelectTab}
         onSelectLanguage={handleSelectLanguage}
-        syncStatus={syncStatus}
-        onTriggerSync={handleTriggerSync}
-        isSyncing={isSyncing}
       />
 
-      {/* Live API Synchronization Success Toast */}
-      {syncBanner && (
-        <div className="fixed top-16 sm:top-20 left-0 right-0 z-40 bg-emerald-600/95 border-b border-emerald-400 px-4 py-2 text-white text-xs flex items-center justify-between backdrop-blur-md shadow-lg animate-in slide-in-from-top duration-200">
-          <div className="max-w-7xl mx-auto flex items-center justify-between w-full">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-white animate-ping" />
-              <span className="font-semibold">{syncBanner}</span>
-            </div>
-            <button onClick={() => setSyncBanner(null)} className="text-white hover:text-zinc-200 text-sm ml-4">✕</button>
-          </div>
-        </div>
-      )}
-
-      {/* Upstream Microservice Failure Warning Banner */}
-      {cascadeAlert && (
-        <div className="fixed top-16 sm:top-20 left-0 right-0 z-40 bg-[#E50914]/90 border-b border-[#E50914] px-4 py-2 text-white text-xs flex items-center justify-between backdrop-blur-md">
-          <div className="max-w-7xl mx-auto flex items-center gap-2 w-full">
-            <AlertTriangle className="w-4 h-4 text-white flex-shrink-0 animate-bounce" />
-            <span>
-              <strong>Microservice Alert:</strong> {cascadeAlert}. Upstream dependency degradation in MovieStream cluster.
-            </span>
-            <button
-              onClick={() => setRadarOpen(true)}
-              className="ml-auto underline font-bold text-white hover:text-zinc-200"
-            >
-              Inspect in Telemetry Radar
-            </button>
-          </div>
+      {recommendationMessage && (
+        <div role="status" className="fixed top-16 sm:top-20 left-0 right-0 z-40 bg-zinc-900/95 border-b border-zinc-700 px-4 py-2 text-center text-xs text-zinc-300">
+          {recommendationMessage}
         </div>
       )}
 
@@ -640,7 +548,7 @@ function MovieStreamMain() {
             {/* Netflix Content Shelves */}
             <div className="space-y-4 -mt-10 sm:-mt-20 relative z-20">
               
-              {/* 1. Continue Watching (History Service :8092) */}
+              {/* 1. Continue Watching */}
               {continueWatching.length > 0 && (
                 <MovieRow
                   id="continue-watching"
@@ -648,7 +556,6 @@ function MovieStreamMain() {
                   items={continueWatching}
                   watchlistIds={watchlistIds}
                   showProgress={true}
-                  badgeText="HISTORY SERVICE :8092"
                   onPlay={(m) => setPlayingMovie(m)}
                   onToggleWatchlist={handleToggleWatchlist}
                   onSelectMovie={(m) => setSelectedMovie(m)}
@@ -660,7 +567,7 @@ function MovieStreamMain() {
                 <MovieRow
                   id="because-watched"
                   title={`🍿 Because You Watched ${lastWatchedTitle}`}
-                  subtitle={`Dynamically generated by Recommendation Service (:8093) from your recent watch history`}
+                  subtitle="More stories inspired by your recent viewing"
                   items={becauseWatchedItems}
                   watchlistIds={watchlistIds}
                   badgeText="RECOMMENDATION ENGINE"
@@ -684,7 +591,7 @@ function MovieStreamMain() {
                 />
               )}
 
-              {/* 4. Personalized Collaborative Recommendations (Recommendation Service :8093) */}
+              {/* 4. Personalized Recommendations */}
               {topPicksItems.length > 0 && (
                 <MovieRow
                   id="recommended"
@@ -692,7 +599,6 @@ function MovieStreamMain() {
                   subtitle={`Personalized by collaborative filtering from your favorite genres`}
                   items={topPicksItems}
                   watchlistIds={watchlistIds}
-                  badgeText="RECOMMENDATION SERVICE :8093"
                   onPlay={(m) => setPlayingMovie(m)}
                   onToggleWatchlist={handleToggleWatchlist}
                   onSelectMovie={(m) => setSelectedMovie(m)}
@@ -728,7 +634,7 @@ function MovieStreamMain() {
                 />
               )}
 
-              {/* 7. My Watchlist (Watchlist Service :8089) */}
+              {/* 7. My Watchlist */}
               {watchlist.length > 0 && (
                 <MovieRow
                   id="watchlist"
@@ -736,7 +642,6 @@ function MovieStreamMain() {
                   subtitle="Saved titles ready to stream"
                   items={watchlist}
                   watchlistIds={watchlistIds}
-                  badgeText="WATCHLIST SERVICE :8089"
                   onPlay={(m) => setPlayingMovie(m)}
                   onToggleWatchlist={handleToggleWatchlist}
                   onSelectMovie={(m) => setSelectedMovie(m)}
@@ -750,7 +655,6 @@ function MovieStreamMain() {
                 subtitle="Most-watched titles worldwide from TMDB"
                 items={trending}
                 watchlistIds={watchlistIds}
-                badgeText="CATALOG SERVICE :8087"
                 onPlay={(m) => setPlayingMovie(m)}
                 onToggleWatchlist={handleToggleWatchlist}
                 onSelectMovie={(m) => setSelectedMovie(m)}
@@ -811,24 +715,7 @@ function MovieStreamMain() {
           </div>
 
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-4 border-t border-zinc-900">
-            <p className="text-zinc-500">
-              © 2024-2026 Netflix Replica Workload • 5 Microservices: Catalog (:8087), User (:8088), Watchlist (:8089), History (:8092), Recommendation (:8093)
-            </p>
-
-            <div className="flex items-center gap-4 text-zinc-400">
-              <a href="http://localhost:3000" target="_blank" rel="noopener noreferrer" className="hover:text-white flex items-center gap-1">
-                <span>OmniStore (:3000)</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-              <a href="http://localhost:4000" target="_blank" rel="noopener noreferrer" className="hover:text-white flex items-center gap-1">
-                <span>Dashboard (:4000)</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-              <a href="http://localhost:4001" target="_blank" rel="noopener noreferrer" className="hover:text-white flex items-center gap-1">
-                <span>Fault Lab (:4001)</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            </div>
+            <p className="text-zinc-500">© 2026 MovieStream · All rights reserved.</p>
           </div>
         </div>
       </footer>
@@ -864,16 +751,6 @@ function MovieStreamMain() {
           }}
           onToggleWatchlist={handleToggleWatchlist}
           onSelectSimilar={(sim) => setSelectedMovie(sim)}
-        />
-      )}
-
-      {/* Microservices Observability Health Radar Modal */}
-      {radarOpen && (
-        <HealthRadarModal
-          statuses={healthStatuses}
-          onClose={() => setRadarOpen(false)}
-          onRefresh={pollHealth}
-          isRefreshing={refreshingRadar}
         />
       )}
 

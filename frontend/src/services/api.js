@@ -1,11 +1,9 @@
 // Centralized API Service for Microservice API Gateway
 //
-// Dev mode  (npm run dev):  hits http://localhost:8080 directly
-// Docker / production:      hits /api/* which nginx proxies to api-gateway:8080
-//
-// Set VITE_API_BASE_URL in .env.production to override (leave blank → uses /api)
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.PROD ? '/api' : 'http://localhost:8080');
+// Use the same-origin proxy in development and production. This keeps browser
+// requests on the storefront origin while the proxy forwards them to the gateway.
+// Set VITE_API_BASE_URL only when intentionally targeting a different API host.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 // Initial offline seed data (strictly for cold start when backend is entirely offline)
 const mockData = {
@@ -169,15 +167,18 @@ async function request(endpoint, options = {}, mockKey = null, retryCount = 0) {
 
   } catch (err) {
     const isAbort = err.name === 'AbortError';
-    const errMessage = isAbort ? 'Request timed out (Latency / Network delay)' : err.message;
-    console.warn(`[Network Warning] ${options.method || 'GET'} ${endpoint} failed: ${errMessage}`);
+    const technicalError = err.message || String(err);
+    const errMessage = isAbort
+      ? 'Request timed out. Please try again.'
+      : 'OmniStore is temporarily unavailable. Please try again shortly.';
+    console.warn(`[Network Warning] ${options.method || 'GET'} ${endpoint} failed: ${technicalError}`);
 
     // If this is a mutation (POST, PUT, DELETE), NEVER fake success!
     const method = (options.method || 'GET').toUpperCase();
     if (method !== 'GET') {
       return {
         data: null,
-        error: `Action failed: ${errMessage}`,
+        error: errMessage,
         status: isAbort ? 504 : 0,
         isFault: true,
         isMock: false

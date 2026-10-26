@@ -1,28 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
 import ProductCatalog from './components/ProductCatalog';
-import CreateOrderModal from './components/CreateOrderModal';
 import OrdersList from './components/OrdersList';
-import InventoryList from './components/InventoryList';
-import PaymentsList from './components/PaymentsList';
-import ShipmentsList from './components/ShipmentsList';
-import DeliveriesList from './components/DeliveriesList';
-import NotificationsList from './components/NotificationsList';
 import OrderTracker from './components/OrderTracker';
 import CartDrawer from './components/CartDrawer';
 import CheckoutModal from './components/CheckoutModal';
 import AuthModal from './components/AuthModal';
 import { api } from './services/api';
-import { AlertTriangle, AlertCircle, RefreshCw } from 'lucide-react';
-
 export default function App() {
   const [activeTab, setActiveTab] = useState('products');
-  const [userRole, setUserRole] = useState('ADMIN'); // Roles: 'ADMIN', 'CUSTOMER', 'INVENTORY_MANAGER', 'LOGISTICS_AGENT'
-  const [viewMode, setViewMode] = useState('STOREFRONT'); // 'STOREFRONT' | 'OPERATIONS'
-  const [gatewayStatus, setGatewayStatus] = useState('CHECKING');
-  const [isMock, setIsMock] = useState(false);
-  const [servicesHealth, setServicesHealth] = useState({});
-  const [activeFaults, setActiveFaults] = useState([]);
 
   // Customer Shopping Cart State
   const [cartItems, setCartItems] = useState(() => {
@@ -61,8 +47,6 @@ export default function App() {
   const [errors, setErrors] = useState({});
 
   // Modals & Selected state
-  const [selectedProductForOrder, setSelectedProductForOrder] = useState(null);
-  const [isCreateOrderOpen, setIsCreateOrderOpen] = useState(false);
   const [selectedOrderToTrack, setSelectedOrderToTrack] = useState(null);
 
   // Sync Cart to localStorage
@@ -72,63 +56,13 @@ export default function App() {
     } catch (_) {}
   }, [cartItems]);
 
-  // Initial Data Load & Gateway Check + Polling
+  // Load the customer session and storefront data.
   useEffect(() => {
-    // Automatically ensure customer session exists so all microservice requests carry valid token
     api.ensureSession().then((user) => {
       if (user) setCurrentUser(user);
-      checkHealth();
       fetchAllData();
     });
-
-    // Poll health and fault states every 5 seconds
-    const intervalId = setInterval(() => {
-      checkHealth();
-    }, 5000);
-
-    return () => clearInterval(intervalId);
   }, []);
-
-  // When Role changes, switch active tab if current tab is restricted
-  const handleRoleChange = (newRole) => {
-    setUserRole(newRole);
-    if (newRole === 'CUSTOMER' && ['inventory', 'payments', 'shipping', 'delivery', 'notifications'].includes(activeTab)) {
-      setActiveTab('products');
-    } else if (newRole === 'INVENTORY_MANAGER' && ['create-order', 'orders', 'payments', 'shipping', 'delivery', 'notifications', 'order-tracking'].includes(activeTab)) {
-      setActiveTab('inventory');
-    } else if (newRole === 'LOGISTICS_AGENT' && ['products', 'create-order', 'orders', 'inventory', 'payments', 'notifications'].includes(activeTab)) {
-      setActiveTab('shipping');
-    }
-  };
-
-  const handleToggleViewMode = () => {
-    const nextMode = viewMode === 'STOREFRONT' ? 'OPERATIONS' : 'STOREFRONT';
-    setViewMode(nextMode);
-    if (nextMode === 'STOREFRONT') {
-      if (!['products', 'orders', 'order-tracking'].includes(activeTab)) {
-        setActiveTab('products');
-      }
-    }
-  };
-
-  const checkHealth = async () => {
-    const res = await api.checkGatewayHealth();
-    if (res && !res.error && res.status === 200) {
-      setGatewayStatus('UP');
-      setIsMock(false);
-    } else {
-      setGatewayStatus(res && res.error ? 'DOWN' : 'CHECKING');
-      setIsMock(Boolean(res && res.isMock));
-    }
-
-    // Check fault status across all 6 microservices
-    const healthRes = await api.checkAllServicesHealth();
-    if (healthRes && healthRes.data) {
-      setServicesHealth(healthRes.data);
-      const faults = Object.values(healthRes.data).filter(s => s.fault && s.fault !== 'NONE');
-      setActiveFaults(faults);
-    }
-  };
 
   const fetchAllData = async () => {
     fetchInventory();
@@ -300,11 +234,6 @@ export default function App() {
   // ── Auth Handlers ─────────────────────────────────────────────────────────
   const handleLoginSuccess = (user) => {
     setCurrentUser(user);
-    if (user?.role === 'ADMIN') {
-      setUserRole('ADMIN');
-    } else {
-      setUserRole('CUSTOMER');
-    }
   };
 
   const handleLogout = () => {
@@ -313,19 +242,6 @@ export default function App() {
   };
 
   // ── Order Creation & Tracking ─────────────────────────────────────────────
-  const handleOpenOrderModal = (product = null) => {
-    setSelectedProductForOrder(product);
-    setIsCreateOrderOpen(true);
-  };
-
-  const handleCreateOrderSubmit = async (orderPayload) => {
-    const res = await api.createOrder(orderPayload);
-    if (res && res.data) {
-      fetchAllData();
-    }
-    return res;
-  };
-
   const handleCheckoutSubmitOrder = async (orderPayload) => {
     const res = await api.createOrder(orderPayload);
     if (res && res.data) {
@@ -335,30 +251,9 @@ export default function App() {
     return res;
   };
 
-  const handleCreateInventoryItem = async (item) => {
-    const res = await api.createInventoryItem(item);
-    if (res && res.data) {
-      fetchInventory();
-    }
-    return res;
-  };
-
-  const handleDeductStock = async (productId, quantity) => {
-    fetchInventory();
-    return { data: { status: 'SUCCESS' }, error: null };
-  };
-
   const handleSelectTrackOrder = (order) => {
     setSelectedOrderToTrack(order);
     setActiveTab('order-tracking');
-  };
-
-  const handleTabChange = (tabId) => {
-    if (tabId === 'create-order') {
-      setIsCreateOrderOpen(true);
-    } else {
-      setActiveTab(tabId);
-    }
   };
 
   const totalCartCount = cartItems.reduce((acc, item) => acc + item.quantity, 0);
@@ -369,46 +264,13 @@ export default function App() {
       {/* Navigation Bar */}
       <Navbar
         activeTab={activeTab}
-        setActiveTab={handleTabChange}
-        gatewayStatus={gatewayStatus}
-        isMock={isMock}
-        userRole={userRole}
-        setUserRole={handleRoleChange}
-        servicesHealth={servicesHealth}
-        activeFaults={activeFaults}
+        setActiveTab={setActiveTab}
         cartCount={totalCartCount}
         onOpenCart={() => setIsCartOpen(true)}
         currentUser={currentUser}
         onOpenAuth={() => setIsAuthOpen(true)}
         onLogout={handleLogout}
-        viewMode={viewMode}
-        onToggleViewMode={handleToggleViewMode}
       />
-
-      {/* Global Microservice Outage / Degradation Alert Banner */}
-      {activeFaults.length > 0 && (
-        <div className="bg-rose-950/95 border-b border-rose-800/90 px-4 sm:px-8 py-3 text-xs shadow-lg animate-pulse">
-          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-start sm:items-center space-x-3 text-rose-200">
-              <span className="px-2 py-0.5 rounded bg-rose-900 border border-rose-700 text-rose-300 font-extrabold uppercase tracking-wider text-[10px] shrink-0 mt-0.5 sm:mt-0">
-                SERVICE OUTAGE
-              </span>
-              <span>
-                <strong>{activeFaults.map(f => f.name).join(', ')}</strong> has an active fault (
-                {activeFaults.map(f => `${f.service}: ${f.fault}${f.delayMs ? ` +${f.delayMs}ms` : ''}`).join(', ')}
-                ). Associated operations such as checkout, payments, stock deduction, and shipping may fail or time out.
-              </span>
-            </div>
-            <button
-              onClick={() => { checkHealth(); fetchAllData(); }}
-              className="flex items-center space-x-1 text-rose-300 hover:text-white underline font-semibold shrink-0 self-end sm:self-center cursor-pointer"
-            >
-              <RefreshCw className="w-3 h-3" />
-              <span>Refresh Status</span>
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Main Content Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -417,13 +279,10 @@ export default function App() {
             inventory={inventory}
             loading={loading.inventory}
             error={errors.inventory}
-            serviceHealth={servicesHealth.inventory}
             onRefresh={fetchInventory}
             onAddToCart={handleAddToCart}
             onBuyNow={handleBuyNow}
-            onOrderProduct={handleOpenOrderModal}
-            onOpenAddProduct={() => setActiveTab('inventory')}
-            userRole={userRole}
+            userRole="CUSTOMER"
           />
         )}
 
@@ -432,67 +291,8 @@ export default function App() {
             orders={orders}
             loading={loading.orders}
             error={errors.orders}
-            serviceHealth={servicesHealth.order}
             onRefresh={fetchOrders}
             onSelectTrackOrder={handleSelectTrackOrder}
-            userRole={userRole}
-          />
-        )}
-
-        {activeTab === 'inventory' && (
-          <InventoryList
-            inventory={inventory}
-            loading={loading.inventory}
-            error={errors.inventory}
-            serviceHealth={servicesHealth.inventory}
-            onRefresh={fetchInventory}
-            onCreateItem={handleCreateInventoryItem}
-            onDeductStock={handleDeductStock}
-            userRole={userRole}
-          />
-        )}
-
-        {activeTab === 'payments' && (
-          <PaymentsList
-            payments={payments}
-            loading={loading.payments}
-            error={errors.payments}
-            serviceHealth={servicesHealth.payment}
-            onRefresh={fetchPayments}
-            userRole={userRole}
-          />
-        )}
-
-        {activeTab === 'shipping' && (
-          <ShipmentsList
-            shipments={shipments}
-            loading={loading.shipments}
-            error={errors.shipping}
-            serviceHealth={servicesHealth.shipping}
-            onRefresh={fetchShipments}
-            userRole={userRole}
-          />
-        )}
-
-        {activeTab === 'delivery' && (
-          <DeliveriesList
-            deliveries={deliveries}
-            loading={loading.deliveries}
-            error={errors.delivery}
-            serviceHealth={servicesHealth.delivery}
-            onRefresh={fetchDeliveries}
-            userRole={userRole}
-          />
-        )}
-
-        {activeTab === 'notifications' && (
-          <NotificationsList
-            notifications={notifications}
-            loading={loading.notifications}
-            error={errors.notification}
-            serviceHealth={servicesHealth.notification}
-            onRefresh={fetchNotifications}
-            userRole={userRole}
           />
         )}
 
@@ -504,8 +304,6 @@ export default function App() {
             shipments={shipments}
             deliveries={deliveries}
             notifications={notifications}
-            servicesHealth={servicesHealth}
-            userRole={userRole}
           />
         )}
       </main>
@@ -519,7 +317,6 @@ export default function App() {
         onRemoveItem={handleRemoveFromCart}
         onClearCart={handleClearCart}
         onOpenCheckout={handleOpenCheckoutFromCart}
-        servicesHealth={servicesHealth}
       />
 
       {/* Customer Checkout Modal */}
@@ -528,7 +325,6 @@ export default function App() {
         onClose={() => setIsCheckoutOpen(false)}
         checkoutData={checkoutData}
         currentUser={currentUser}
-        servicesHealth={servicesHealth}
         onSubmitOrder={handleCheckoutSubmitOrder}
         onOpenOrderTracker={(order) => {
           if (order) setSelectedOrderToTrack(order);
@@ -543,22 +339,9 @@ export default function App() {
         onLoginSuccess={handleLoginSuccess}
       />
 
-      {/* Create Order Modal (Direct Admin/Single Product Order) */}
-      <CreateOrderModal
-        isOpen={isCreateOrderOpen}
-        onClose={() => setIsCreateOrderOpen(false)}
-        selectedProduct={selectedProductForOrder}
-        inventory={inventory}
-        servicesHealth={servicesHealth}
-        activeFaults={activeFaults}
-        onSubmitOrder={handleCreateOrderSubmit}
-      />
-
       {/* Global Footer */}
       <footer className="bg-slate-900/60 border-t border-slate-800 py-6 text-center text-xs text-slate-500">
-        <p>
-          OmniStore Microservices Platform &bull; API Gateway: <code className="text-indigo-400">http://localhost:8080</code> &bull; Mode: <span className="text-indigo-300 font-bold">{viewMode}</span> &bull; Active Role: <span className="text-emerald-300 font-bold">{userRole}</span>
-        </p>
+        <p>OmniStore · Your shopping, made simple.</p>
       </footer>
     </div>
   );

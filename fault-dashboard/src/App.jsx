@@ -42,12 +42,17 @@ const FAULT_TYPE_STYLES = {
 // ── Root App ─────────────────────────────────────────────────────────────────
 export default function App() {
   // Workload selection
-  const [workload,      setWorkload]      = useState('omnistore')
+  const [workload, setWorkload] = useState(() => {
+    const saved = localStorage.getItem('fault-lab-workload')
+    return saved === 'moviestream' ? 'moviestream' : 'omnistore'
+  })
   const currentServices = WORKLOAD_SERVICES[workload] ?? WORKLOAD_SERVICES.omnistore
 
   // Gateway connectivity
-  const [gwHealth,      setGwHealth]      = useState({ up: false, status: 'CHECKING', error: null })
-  const [checkingGw,    setCheckingGw]    = useState(true)
+  const [gwHealth, setGwHealth] = useState(() => workload === 'moviestream'
+    ? { up: true, status: 'NOT_REQUIRED', error: null }
+    : { up: false, status: 'CHECKING', error: null })
+  const [checkingGw, setCheckingGw] = useState(workload === 'omnistore')
 
   // Per-service fault states
   const [faultStates,   setFaultStates]   = useState({})   // { [key]: { fault, delayMs, error } }
@@ -66,15 +71,25 @@ export default function App() {
   const [injecting,  setInjecting]  = useState(false)
   const [resetting,  setResetting]  = useState(null)   // key | 'ALL' | null
   const [confirmAll, setConfirmAll] = useState(false)
+  const statusRequestId = useRef(0)
 
   const handleWorkloadChange = (nextWorkload) => {
     if (nextWorkload === workload) return
+    localStorage.setItem('fault-lab-workload', nextWorkload)
     setWorkload(nextWorkload)
     const nextServices = WORKLOAD_SERVICES[nextWorkload] ?? WORKLOAD_SERVICES.omnistore
     setSelService(nextServices[0])
     setFaultStates({})
     setConfirmAll(false)
     setFeedback(null)
+    statusRequestId.current += 1
+    if (nextWorkload === 'moviestream') {
+      setGwHealth({ up: true, status: 'NOT_REQUIRED', error: null })
+      setCheckingGw(false)
+    } else {
+      setGwHealth({ up: false, status: 'CHECKING', error: null })
+      setCheckingGw(true)
+    }
   }
 
   // ── Gateway health check ──────────────────────────────────────────────────
@@ -88,8 +103,10 @@ export default function App() {
 
   // ── Fetch all fault statuses ──────────────────────────────────────────────
   const refreshStatuses = useCallback(async (targetKeys = currentServices) => {
+    const requestId = ++statusRequestId.current
     setLoadingStates(true)
     const states = await getAllFaultStatuses(targetKeys)
+    if (requestId !== statusRequestId.current) return
     setFaultStates(states)
     setLastFetched(new Date())
     setLoadingStates(false)
@@ -97,9 +114,14 @@ export default function App() {
 
   // ── Boot: health check then load statuses ─────────────────────────────────
   useEffect(() => {
-    pingGateway()
+    if (workload === 'omnistore') {
+      pingGateway()
+    } else {
+      setGwHealth({ up: true, status: 'NOT_REQUIRED', error: null })
+      setCheckingGw(false)
+    }
     refreshStatuses(currentServices)
-  }, [pingGateway, refreshStatuses, currentServices])
+  }, [pingGateway, refreshStatuses, currentServices, workload])
 
   // ── Auto-refresh polling ──────────────────────────────────────────────────
   useEffect(() => {
@@ -243,7 +265,7 @@ export default function App() {
             ) : gwHealth.up ? (
               <>
                 <Wifi size={11} className="text-emerald-400" />
-                <span className="text-emerald-400">Gateway</span>
+                <span className="text-emerald-400">{workload === 'moviestream' ? 'MovieStream services' : 'Gateway'}</span>
                 {since !== null && (
                   <span className="text-slate-600">· {since}s ago</span>
                 )}
@@ -251,7 +273,7 @@ export default function App() {
             ) : (
               <>
                 <WifiOff size={11} className="text-red-400" />
-                <span className="text-red-400">Gateway unreachable</span>
+                <span className="text-red-400">{workload === 'moviestream' ? 'MovieStream services unavailable' : 'Gateway unreachable'}</span>
               </>
             )}
           </div>
@@ -271,7 +293,7 @@ export default function App() {
 
           {/* Manual refresh */}
           <button
-            onClick={() => { pingGateway(); refreshStatuses(currentServices) }}
+            onClick={() => { if (workload === 'omnistore') pingGateway(); refreshStatuses(currentServices) }}
             disabled={loadingStates || checkingGw}
             className="p-1.5 rounded border border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200 disabled:opacity-40 transition-colors"
           >
@@ -304,7 +326,7 @@ export default function App() {
       </header>
 
       {/* ── Gateway offline banner ── */}
-      {!gwHealth.up && !checkingGw && (
+      {workload === 'omnistore' && !gwHealth.up && !checkingGw && (
         <div className="bg-red-950/50 border-b border-red-900/40 px-5 py-2.5 flex items-center justify-between text-xs">
           <span className="text-red-300">
             <span className="font-semibold">API Gateway unreachable.</span>
@@ -356,7 +378,7 @@ export default function App() {
               setDelayMs={setDelayMs}
               onInject={handleInject}
               injecting={injecting}
-              gatewayUp={gwHealth.up}
+              gatewayUp={workload === 'moviestream' || gwHealth.up}
             />
           </div>
 

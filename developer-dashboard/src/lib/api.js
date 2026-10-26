@@ -20,22 +20,28 @@ export const POLL_MS    = 8000   // live metrics poll interval
 async function apiFetch(url, options = {}) {
   const controller = new AbortController()
   const tid = setTimeout(() => controller.abort(), 12000)
+  const onCallerAbort = () => controller.abort()
+  if (options.signal?.aborted) controller.abort()
+  else options.signal?.addEventListener('abort', onCallerAbort, { once: true })
   try {
-    const res = await fetch(url, { signal: controller.signal, ...options })
+    const { signal, ...requestOptions } = options
+    const res = await fetch(url, { ...requestOptions, signal: controller.signal })
     clearTimeout(tid)
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     return { data: await res.json(), error: null }
   } catch (err) {
-    clearTimeout(tid)
     return { data: null, error: err.name === 'AbortError' ? 'Request timed out' : err.message }
+  } finally {
+    clearTimeout(tid)
+    options.signal?.removeEventListener('abort', onCallerAbort)
   }
 }
 
 // ── ML Prediction API ────────────────────────────────────────────────────────
 
 /** Full live pipeline: metrics, prediction, graph, incidents, etc. */
-export async function fetchLiveMetrics(workload = 'omnistore') {
-  return apiFetch(`${ML_API}/api/metrics/live?workload=${encodeURIComponent(workload)}`)
+export async function fetchLiveMetrics(workload = 'omnistore', options = {}) {
+  return apiFetch(`${ML_API}/api/metrics/live?workload=${encodeURIComponent(workload)}`, options)
 }
 
 /** Fetch recent application logs for a service from Loki or its local log file. */
@@ -267,11 +273,13 @@ export async function resetAllFaults(serviceKeys = KNOWN_SERVICES) {
  * @param {object} liveMetrics  data.live_metrics from /metrics/live
  * @returns {string[]}  e.g. ['order','payment','inventory',...]
  */
-export function deriveServiceKeys(liveMetrics) {
+export function deriveServiceKeys(liveMetrics, workload = 'omnistore') {
+  const workloadServices = WORKLOAD_SERVICES[workload] ?? WORKLOAD_SERVICES.omnistore
   if (!liveMetrics || typeof liveMetrics !== 'object' || Object.keys(liveMetrics).length === 0) {
-    return KNOWN_SERVICES
+    return workloadServices
   }
-  return Object.keys(liveMetrics)
+  const keys = Object.keys(liveMetrics).filter(key => workloadServices.includes(key))
+  return keys.length ? keys : workloadServices
 }
 
 /**

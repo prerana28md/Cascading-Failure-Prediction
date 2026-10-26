@@ -2,11 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, 
   CreditCard, 
-  Truck, 
   ShieldCheck, 
-  AlertCircle, 
+  AlertCircle,
   CheckCircle2, 
-  AlertTriangle, 
   Loader2, 
   ArrowLeft,
   Smartphone,
@@ -20,7 +18,6 @@ export default function CheckoutModal({
   onClose,
   checkoutData,
   currentUser,
-  servicesHealth = {},
   onSubmitOrder,
   onOpenOrderTracker
 }) {
@@ -40,7 +37,6 @@ export default function CheckoutModal({
   // Response states
   const [createdOrder, setCreatedOrder] = useState(null);
   const [errorDetails, setErrorDetails] = useState(null);
-  const [failedService, setFailedService] = useState(null);
 
   // ALWAYS reset to initial FORM view whenever modal opens or new checkout item is selected
   useEffect(() => {
@@ -48,7 +44,6 @@ export default function CheckoutModal({
       setStep('FORM');
       setCreatedOrder(null);
       setErrorDetails(null);
-      setFailedService(null);
       if (currentUser?.username) {
         setFullName(`${currentUser.username.toUpperCase()} (Customer)`);
         setEmail(`${currentUser.username}@omnistore.com`);
@@ -59,16 +54,6 @@ export default function CheckoutModal({
   if (!isOpen || !checkoutData) return null;
 
   const { cartItems = [], subtotal = 0, shipping = 0, discountAmount = 0, tax = 0, total = 0 } = checkoutData;
-
-  // Active microservice faults
-  const paymentFault = servicesHealth?.payment?.fault && servicesHealth.payment.fault !== 'NONE' 
-    ? servicesHealth.payment.fault : null;
-  const inventoryFault = servicesHealth?.inventory?.fault && servicesHealth.inventory.fault !== 'NONE' 
-    ? servicesHealth.inventory.fault : null;
-  const orderFault = servicesHealth?.order?.fault && servicesHealth.order.fault !== 'NONE' 
-    ? servicesHealth.order.fault : null;
-  const shippingFault = servicesHealth?.shipping?.fault && servicesHealth.shipping.fault !== 'NONE' 
-    ? servicesHealth.shipping.fault : null;
 
   const handlePlaceOrder = async (e) => {
     if (e) e.preventDefault();
@@ -96,24 +81,11 @@ export default function CheckoutModal({
         setCreatedOrder(res.data);
         setStep('SUCCESS');
       } else {
-        const errMsg = res?.error || 'Order placement failed: Downstream microservice error';
-        setErrorDetails(errMsg);
-        
-        // Diagnose which microservice caused the breakdown
-        if (errMsg.toLowerCase().includes('payment') || paymentFault) {
-          setFailedService('Payment Service (:8082)');
-        } else if (errMsg.toLowerCase().includes('inventory') || errMsg.toLowerCase().includes('stock') || inventoryFault) {
-          setFailedService('Inventory Service (:8083)');
-        } else if (errMsg.toLowerCase().includes('order') || orderFault) {
-          setFailedService('Order Service (:8081)');
-        } else {
-          setFailedService('Microservice Pipeline');
-        }
+        setErrorDetails('We could not place your order right now. Please try again.');
         setStep('FAILURE');
       }
     } catch (err) {
-      setErrorDetails(err.message || 'Network exception during checkout');
-      setFailedService('Gateway Connection');
+      setErrorDetails('We could not place your order right now. Please try again.');
       setStep('FAILURE');
     }
   };
@@ -122,7 +94,6 @@ export default function CheckoutModal({
     setStep('FORM');
     setCreatedOrder(null);
     setErrorDetails(null);
-    setFailedService(null);
     onClose();
   };
 
@@ -138,7 +109,7 @@ export default function CheckoutModal({
             </div>
             <div>
               <h2 className="text-base font-bold text-white">OmniStore Checkout</h2>
-              <p className="text-xs text-slate-400">Real-Time Microservice Transaction Pipeline</p>
+              <p className="text-xs text-slate-400">Complete your purchase securely.</p>
             </div>
           </div>
           <button
@@ -156,56 +127,6 @@ export default function CheckoutModal({
           {step === 'FORM' && (
             <form onSubmit={handlePlaceOrder} className="space-y-5">
               
-              {/* Microservice Pre-Flight Health Radar */}
-              <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-300 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
-                    Microservice Pipeline Pre-Flight Health
-                  </span>
-                  <span className="text-[10px] text-slate-500 font-mono">Port :8080 &rarr; Direct Services</span>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {[
-                    { key: 'order', label: 'Order :8081', fault: orderFault },
-                    { key: 'inventory', label: 'Inventory :8083', fault: inventoryFault },
-                    { key: 'payment', label: 'Payment :8082', fault: paymentFault },
-                    { key: 'shipping', label: 'Shipping :8084', fault: shippingFault },
-                  ].map(svc => {
-                    const isFaulted = Boolean(svc.fault);
-                    return (
-                      <div 
-                        key={svc.key}
-                        className={`p-2 rounded-lg border text-center text-[11px] transition ${
-                          isFaulted
-                            ? 'bg-rose-950/40 border-rose-800/80 text-rose-300 font-bold'
-                            : 'bg-slate-900 border-slate-800 text-slate-300'
-                        }`}
-                      >
-                        <div className="truncate font-medium">{svc.label}</div>
-                        <div className="text-[10px] mt-0.5 font-mono">
-                          {isFaulted ? (
-                            <span className="text-rose-400">{svc.fault} FAULT</span>
-                          ) : (
-                            <span className="text-emerald-400">HEALTHY</span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {paymentFault && (
-                  <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center space-x-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                    <span>
-                      <strong>Warning:</strong> Payment Service has an active fault ({paymentFault}). This order is expected to fail during payment processing.
-                    </span>
-                  </div>
-                )}
-              </div>
-
               {/* Shipping & Contact Information */}
               <div className="space-y-3">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
@@ -389,15 +310,15 @@ export default function CheckoutModal({
                 <Loader2 className="w-12 h-12 text-indigo-500 animate-spin" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-white">Executing Microservice Order Pipeline</h3>
+                <h3 className="text-base font-bold text-white">Submitting your order</h3>
                 <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-                  Gateway is delegating requests across Order (:8081) &rarr; Inventory (:8083) &rarr; Payment (:8082) &rarr; Shipping (:8084)...
+                  Please wait while we securely process your purchase.
                 </p>
               </div>
             </div>
           )}
 
-          {/* STEP 3: FAILURE (Realistic Microservice Outage Feedback) */}
+          {/* STEP 3: FAILURE */}
           {step === 'FAILURE' && (
             <div className="p-6 rounded-2xl bg-rose-950/40 border border-rose-800/80 space-y-5 animate-in fade-in duration-200">
               <div className="flex items-start space-x-3">
@@ -406,38 +327,15 @@ export default function CheckoutModal({
                 </div>
                 <div>
                   <span className="px-2 py-0.5 rounded bg-rose-900 border border-rose-700 text-[10px] font-extrabold uppercase tracking-wider text-rose-300">
-                    TRANSACTION REJECTED &bull; {failedService}
+                    ORDER NOT PLACED
                   </span>
                   <h3 className="text-lg font-extrabold text-white mt-1">
-                    Checkout Failed Due to Microservice Fault
+                    We couldn't place your order
                   </h3>
                   <p className="text-xs text-slate-300 mt-1">
                     {errorDetails}
                   </p>
                 </div>
-              </div>
-
-              {/* Breakdown of What Happened in Microservice Architecture */}
-              <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 text-xs space-y-2">
-                <div className="font-bold text-slate-200">Architecture Cascade Trace:</div>
-                <ul className="space-y-1.5 text-slate-400 text-[11px]">
-                  <li className="flex items-center space-x-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    <span>1. API Gateway routed POST /orders to Order Service (:8081).</span>
-                  </li>
-                  <li className="flex items-center space-x-2">
-                    <span className={`w-1.5 h-1.5 rounded-full ${failedService?.includes('Inventory') ? 'bg-rose-400' : 'bg-emerald-400'}`} />
-                    <span>2. Inventory Service (:8083) stock allocation {failedService?.includes('Inventory') ? 'FAILED' : 'checked'}.</span>
-                  </li>
-                  <li className="flex items-center space-x-2">
-                    <span className={`w-1.5 h-1.5 rounded-full ${failedService?.includes('Payment') ? 'bg-rose-400' : 'bg-slate-500'}`} />
-                    <span>3. Payment Service (:8082) transaction call {failedService?.includes('Payment') ? 'FAILED / TIMED OUT' : 'aborted'}.</span>
-                  </li>
-                  <li className="flex items-center space-x-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-600" />
-                    <span>4. Order state flagged as <strong>PAYMENT_FAILED</strong> in MongoDB Atlas.</span>
-                  </li>
-                </ul>
               </div>
 
               {/* Actions */}
@@ -479,7 +377,7 @@ export default function CheckoutModal({
                     Thank You For Your Order!
                   </h3>
                   <p className="text-xs text-slate-300 mt-1">
-                    Order confirmed and payment verified. All microservices responded successfully.
+                    Your order is confirmed and payment has been verified.
                   </p>
                 </div>
               </div>
@@ -505,15 +403,6 @@ export default function CheckoutModal({
                   </div>
                 </div>
               </div>
-
-              {shippingFault && (
-                <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center space-x-2 text-left">
-                  <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                  <span>
-                    <strong>Notice:</strong> Shipping Service (:8084) is experiencing a fault. Dispatch notification is queued and will trigger automatically once restored.
-                  </span>
-                </div>
-              )}
 
               {/* Navigation Action */}
               <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">

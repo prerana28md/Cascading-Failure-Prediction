@@ -23,7 +23,6 @@ export default function ProductCatalog({
   inventory = [], 
   loading, 
   error, 
-  serviceHealth, 
   onRefresh, 
   onAddToCart,
   onBuyNow,
@@ -36,10 +35,8 @@ export default function ProductCatalog({
   const [quantities, setQuantities] = useState({});
   const [addedItemNotice, setAddedItemNotice] = useState(null);
 
-  const isFaulted = serviceHealth?.fault && serviceHealth.fault !== 'NONE';
-  const faultType = serviceHealth?.fault;
   const isAuthRequired = Boolean(error && (error.includes('403') || error.includes('401') || error.includes('Authentication')));
-  const isOutage = isFaulted || (error && !isAuthRequired);
+  const isOutage = error && !isAuthRequired;
 
   // Categories
   const categories = [
@@ -110,22 +107,14 @@ export default function ProductCatalog({
         <div className="relative z-10 max-w-2xl space-y-3">
           <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-semibold">
             <Zap className="w-3.5 h-3.5 text-amber-400" />
-            <span>OmniStore Flagship Tech &bull; Live Microservices</span>
+            <span>OmniStore Collection</span>
           </div>
           <h1 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight leading-tight">
             High-Performance Hardware &bull; Resilient Commerce
           </h1>
           <p className="text-slate-300 text-sm leading-relaxed">
-            Browse our real-time product inventory served by the Inventory Microservice (:8083). Add products to your cart and trigger genuine transactional flows across Order, Payment, Shipping, and Delivery services.
+            Browse our latest products and find something you love.
           </p>
-          <div className="flex flex-wrap items-center gap-3 pt-2 text-xs text-slate-400">
-            <span className="flex items-center gap-1.5 bg-slate-900/80 px-2.5 py-1 rounded-lg border border-slate-800">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" /> Real MongoDB Stock
-            </span>
-            <span className="flex items-center gap-1.5 bg-slate-900/80 px-2.5 py-1 rounded-lg border border-slate-800">
-              <CheckCircle2 className="w-4 h-4 text-indigo-400" /> Multi-Step Transaction Pipeline
-            </span>
-          </div>
         </div>
       </div>
 
@@ -134,25 +123,20 @@ export default function ProductCatalog({
         <div className="p-5 rounded-2xl bg-rose-950/80 border border-rose-800/80 text-rose-200 text-xs space-y-2 shadow-lg animate-in fade-in duration-200">
           <div className="flex items-center space-x-2 font-bold text-sm text-rose-300">
             <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0" />
-            <span>Inventory Microservice Outage Detected</span>
-            {faultType && (
-              <span className="px-2 py-0.5 rounded bg-rose-900 border border-rose-700 text-[10px] font-extrabold uppercase">
-                {faultType}
-              </span>
-            )}
+            <span>Products are temporarily unavailable</span>
           </div>
           <p className="text-slate-300">
-            {error || `Inventory Service (:8083) is experiencing a ${faultType} fault. Live catalogue stock queries and inventory reserves are failing.`}
+            {error || 'Please try again in a moment.'}
           </p>
         </div>
       )}
 
       {/* Auth Notice */}
-      {isAuthRequired && !isFaulted && (
+      {isAuthRequired && (
         <div className="p-4 rounded-2xl bg-indigo-950/70 border border-indigo-800/80 text-indigo-200 text-xs flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
           <div className="flex items-center space-x-2">
             <ShieldCheck className="w-5 h-5 text-indigo-400 flex-shrink-0" />
-            <span>Connecting session to microservice inventory...</span>
+            <span>Sign in to view current product availability.</span>
           </div>
           <button
             onClick={onRefresh}
@@ -228,7 +212,7 @@ export default function ProductCatalog({
       {loading && (
         <div className="flex items-center justify-center py-16 text-slate-400 space-x-3">
           <RefreshCw className="w-6 h-6 animate-spin text-indigo-400" />
-          <span className="text-sm font-medium">Querying Inventory Microservice (:8083)...</span>
+          <span className="text-sm font-medium">Loading products…</span>
         </div>
       )}
 
@@ -354,10 +338,10 @@ export default function ProductCatalog({
 
           {filteredItems.length === 0 && (
             <div className="col-span-full py-16 text-center text-slate-500 font-sans">
-              {isFaulted || error ? (
+              {error ? (
                 <div className="space-y-1">
-                  <p className="text-rose-300 font-semibold text-base">Inventory catalog unavailable</p>
-                  <p className="text-xs text-slate-500">Service is down or unreachable. Products will load once inventory-service recovers.</p>
+                  <p className="text-rose-300 font-semibold text-base">Products couldn't be loaded</p>
+                  <p className="text-xs text-slate-500">Please try again in a moment.</p>
                 </div>
               ) : (
                 <span>No products found matching your search.</span>

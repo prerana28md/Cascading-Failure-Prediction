@@ -888,13 +888,13 @@ function ComparisonTable({ serviceKeys, liveMetrics, cascadePath, rootCauses }) 
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
-export default function ServicesPage({ data, metricHistory, loading }) {
+export default function ServicesPage({ data, workload = 'omnistore', metricHistory, loading }) {
   const liveMetrics = data?.live_metrics  ?? {}
   const incidents   = data?.incident_log  ?? []
   const slaData     = data?.sla_compliance ?? {}
   const cascadePath = data?.cascade_path  ?? []
   const rootCauses  = data?.root_cause    ?? []
-  const serviceKeys = deriveServiceKeys(liveMetrics)
+  const serviceKeys = deriveServiceKeys(liveMetrics, workload)
 
   const [selected,    setSelected]    = useState(null)
   const [sortBy,      setSortBy]      = useState('name')
@@ -902,7 +902,7 @@ export default function ServicesPage({ data, metricHistory, loading }) {
   const [faultStates, setFaultStates] = useState({})
   const [compMetric,  setCompMetric]  = useState('error_rate_pct')
 
-  const activeKey    = selected ?? serviceKeys[0] ?? null
+  const activeKey    = serviceKeys.includes(selected) ? selected : serviceKeys[0] ?? null
   const detailRef    = useRef(null)
 
   // Select a card and scroll the detail panel into view smoothly
@@ -1045,7 +1045,7 @@ export default function ServicesPage({ data, metricHistory, loading }) {
             {activeKey ? (
               <ServiceDetailPanel
                 serviceKey={activeKey}
-                workload={data?.workload ?? 'omnistore'}
+                workload={workload}
                 metrics={liveMetrics[activeKey]}
                 snapshots={metricHistory[activeKey] ?? []}
                 incidents={incidents}

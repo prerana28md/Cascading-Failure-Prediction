@@ -23,6 +23,7 @@ export default function App() {
   const [autoRefresh,  setAutoRefresh]  = useState(true)
   const [riskHistory,  setRiskHistory]  = useState([])
   const requestSequence = useRef(0)
+  const activeRequest = useRef(null)
 
   // metricHistory: { [serviceKey]: Array<{ t, time, error_rate, error_rate_pct, p99, p50, request_rate, availability_pct }> }
   // Each entry is a full snapshot with a timestamp so charts can show time labels
@@ -31,6 +32,8 @@ export default function App() {
   const handleWorkloadChange = (nextWorkload) => {
     if (nextWorkload === workload) return
     requestSequence.current += 1
+    activeRequest.current?.abort()
+    activeRequest.current = null
     setWorkload(nextWorkload)
     setRiskHistory([])
     setMetricHistory({})
@@ -38,11 +41,17 @@ export default function App() {
   }
 
   const fetchData = useCallback(async () => {
+    if (activeRequest.current) return
     const requestId = ++requestSequence.current
+    const controller = new AbortController()
+    activeRequest.current = controller
     setLoading(true)
-    const { data: json, error } = await fetchLiveMetrics(workload)
+    const { data: json } = await fetchLiveMetrics(workload, { signal: controller.signal })
 
-    if (requestId !== requestSequence.current) return
+    if (requestId !== requestSequence.current) {
+      if (activeRequest.current === controller) activeRequest.current = null
+      return
+    }
 
     if (json) {
       setData(json)
@@ -64,7 +73,7 @@ export default function App() {
           },
         ])
 
-        const keys = deriveServiceKeys(json.live_metrics)
+        const keys = deriveServiceKeys(json.live_metrics, workload)
         setMetricHistory(prev => {
           const next = { ...prev }
           keys.forEach(k => {
@@ -92,6 +101,7 @@ export default function App() {
       setApiStatus('DOWN')
     }
 
+    if (activeRequest.current === controller) activeRequest.current = null
     setLoading(false)
   }, [workload])
 
@@ -155,6 +165,7 @@ export default function App() {
         {page === 'overview' && (
           <OverviewPage
             data={data}
+            workload={workload}
             riskHistory={riskHistory}
             metricHistory={metricHistory}
             loading={loading && !data}
@@ -165,6 +176,7 @@ export default function App() {
         {page === 'services' && (
           <ServicesPage
             data={data}
+            workload={workload}
             metricHistory={metricHistory}
             loading={loading && !data}
           />

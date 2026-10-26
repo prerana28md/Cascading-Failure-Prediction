@@ -25,7 +25,7 @@ export default function GraphPage({ data, loading }) {
       <div>
         <h1 className="text-base font-semibold text-slate-100">Dependency Graph</h1>
         <p className="text-xs text-slate-500 mt-0.5">
-          Live NetworkX graph — driven by backend data. Hover a node for details.
+          Live dependency topology. The highlighted path shows possible downstream reachability, not a failure probability.
         </p>
       </div>
 
@@ -35,6 +35,10 @@ export default function GraphPage({ data, loading }) {
         rootCauses={rootCauses}
         cascadePath={cascadePath}
         liveMetrics={liveMetrics}
+        serviceImpactPct={data?.service_impact_pct ?? {}}
+        affectedPercentage={data?.affected_percentage}
+        affectedServices={data?.affected_services}
+        affectedServicePercentage={data?.affected_service_percentage}
         loading={loading && !graphData}
       />
 
@@ -71,10 +75,10 @@ export default function GraphPage({ data, loading }) {
         {/* Cascade path */}
         <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
           <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-            Cascade Propagation Path
+            Potential Propagation Path
           </h2>
           {cascadePath.length === 0 ? (
-            <p className="text-xs text-slate-500 italic">No active cascade path</p>
+            <p className="text-xs text-slate-500 italic">No root-cause path detected</p>
           ) : (
             <>
               <div className="flex flex-col gap-2">
@@ -101,7 +105,7 @@ export default function GraphPage({ data, loading }) {
                 ))}
               </div>
               <p className="text-[11px] text-slate-600 mt-3">
-                Computed via NetworkX BFS from root-cause nodes through the architectural call tree.
+                The percentage above is topology-based reachability from detected root causes, not a failure probability. Observed impact values come from current service metrics; reachable services are possible impact targets, not confirmed failures.
               </p>
             </>
           )}

@@ -7,8 +7,7 @@ import {
   Minus, 
   ArrowRight, 
   ShieldCheck, 
-  Tag, 
-  AlertTriangle,
+  Tag,
   ShoppingBag
 } from 'lucide-react';
 
@@ -19,8 +18,7 @@ export default function CartDrawer({
   onUpdateQuantity,
   onRemoveItem,
   onClearCart,
-  onOpenCheckout,
-  servicesHealth = {}
+  onOpenCheckout
 }) {
   const [promoCode, setPromoCode] = useState('');
   const [discountPercent, setDiscountPercent] = useState(0);
@@ -53,9 +51,6 @@ export default function CartDrawer({
       setPromoMessage({ success: false, text: 'Invalid promo code. Try SAVE10' });
     }
   };
-
-  const paymentFault = servicesHealth?.payment?.fault && servicesHealth.payment.fault !== 'NONE' 
-    ? servicesHealth.payment.fault : null;
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden animate-in fade-in duration-200">
@@ -92,16 +87,6 @@ export default function CartDrawer({
               <X className="w-5 h-5" />
             </button>
           </div>
-
-          {/* Microservice Fault Warning in Cart */}
-          {paymentFault && (
-            <div className="bg-amber-950/80 border-b border-amber-800/80 px-4 py-2.5 text-xs text-amber-200 flex items-center space-x-2">
-              <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-              <span>
-                <strong>Warning:</strong> Payment Service has an active fault ({paymentFault}). Transactions during checkout may fail.
-              </span>
-            </div>
-          )}
 
           {/* Cart Items List */}
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
@@ -274,7 +259,7 @@ export default function CartDrawer({
 
               <div className="flex items-center justify-center space-x-1.5 text-[10px] text-slate-500">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Protected by Microservice Circuit Breaker & Fallback Security</span>
+                <span>Secure checkout · Your cart is saved while you shop</span>
               </div>
             </div>
           )}

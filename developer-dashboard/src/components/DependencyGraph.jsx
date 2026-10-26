@@ -21,6 +21,10 @@ export default function DependencyGraph({
   rootCauses  = [],
   cascadePath = [],
   liveMetrics = {},
+  serviceImpactPct = {},
+  affectedPercentage,
+  affectedServices,
+  affectedServicePercentage,
   loading     = false,
 }) {
   const [hoveredNode, setHoveredNode] = useState(null)
@@ -51,6 +55,11 @@ export default function DependencyGraph({
 
   const rootSet    = useMemo(() => new Set((rootCauses || []).map(c => c.service)), [rootCauses])
   const cascadeSet = useMemo(() => new Set(cascadePath || []), [cascadePath])
+  const potentialReachCount = useMemo(
+    () => new Set((cascadePath || []).filter(service => positions[service])).size,
+    [cascadePath, positions],
+  )
+  const potentialReachPct = nodes.length ? potentialReachCount / nodes.length * 100 : 0
 
   const nodeColour = useCallback((node) => {
     if (rootSet.has(node.id))    return { fill: '#dc2626', stroke: '#991b1b', label: '#fca5a5' }
@@ -92,11 +101,33 @@ export default function DependencyGraph({
           <LegendItem color="#dc2626" label="Root Cause" />
           <LegendItem color="#d97706" label="Cascade Path" />
           <LegendItem color="#3b82f6" label="Healthy"    />
-          <span className="text-slate-700">|</span>
-          <LegendItem color="#ef4444" label="≥70% propagated" bar />
-          <LegendItem color="#f59e0b" label="30–69%"          bar />
-          <LegendItem color="#6366f1" label="1–29%"           bar />
         </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-4 py-2 border-b border-slate-800/70 text-[11px]">
+        <span className="text-slate-400">
+          Observed impact score:{' '}
+          <strong className="text-slate-200">
+            {Number.isFinite(Number(affectedPercentage)) ? `${Number(affectedPercentage).toFixed(1)}%` : '—'}
+          </strong>
+        </span>
+        <span className="text-slate-400">
+          Services affected:{' '}
+          <strong className="text-slate-200">
+            {Number.isFinite(Number(affectedServicePercentage))
+              ? `${Number(affectedServicePercentage).toFixed(1)}%`
+              : '—'}
+            {Number.isFinite(Number(affectedServices)) ? ` (${affectedServices}/${nodes.length})` : ''}
+          </strong>
+        </span>
+        <span
+          className="text-slate-400"
+          title="Share of graph nodes reachable along the detected cascade path; this is not a failure probability."
+        >
+          Potential propagation reach:{' '}
+          <strong className="text-amber-300">
+            {rootCauses.length ? `${potentialReachPct.toFixed(1)}% (${potentialReachCount}/${nodes.length})` : '—'}
+          </strong>
+        </span>
       </div>
 
       {/* SVG */}
@@ -203,67 +234,17 @@ export default function DependencyGraph({
                 >
                   {fullLabel}
                 </text>
-
-                {/* ── Failure propagation % badge ──────────────────────── */}
-                {/* Always shown so engineers can compare impact at a glance */}
-                {(() => {
-                  const pct     = node.cascade_effect_pct ?? 0
-                  // Colour tiers: 0 = slate, 1-29 = blue, 30-69 = amber, 70+ = red
-                  const barFill = pct === 0 ? '#334155'
-                                : pct >= 70 ? '#ef4444'
-                                : pct >= 30 ? '#f59e0b'
-                                : '#6366f1'
-                  const txtFill = pct === 0 ? '#64748b'
-                                : pct >= 70 ? '#fca5a5'
-                                : pct >= 30 ? '#fde68a'
-                                : '#c7d2fe'
-                  const bgFill  = pct === 0 ? '#1e293b'
-                                : pct >= 70 ? '#7f1d1d'
-                                : pct >= 30 ? '#78350f'
-                                : '#1e1b4b'
-                  const BAR_W   = 46
-                  const BAR_H   = 5
-                  const bx      = pos.x - BAR_W / 2
-                  const by      = pos.y + 38        // below the name label
-                  const filled  = Math.round((pct / 100) * BAR_W)
-
-                  return (
-                    <g style={{ pointerEvents: 'none' }}>
-                      {/* Pill background */}
-                      <rect
-                        x={bx - 2} y={by - 1}
-                        width={BAR_W + 4} height={BAR_H + 2}
-                        rx={3}
-                        fill={bgFill}
-                        stroke={barFill}
-                        strokeWidth={0.8}
-                        opacity={0.9}
-                      />
-                      {/* Filled portion */}
-                      {filled > 0 && (
-                        <rect
-                          x={bx} y={by}
-                          width={filled} height={BAR_H}
-                          rx={2}
-                          fill={barFill}
-                          opacity={0.9}
-                        />
-                      )}
-                      {/* Percentage label */}
-                      <text
-                        x={pos.x}
-                        y={pos.y + 52}
-                        fill={txtFill}
-                        fontSize={8.5}
-                        fontWeight="700"
-                        fontFamily="monospace"
-                        textAnchor="middle"
-                      >
-                        {pct}% propagated
-                      </text>
-                    </g>
-                  )
-                })()}
+                {Number.isFinite(Number(serviceImpactPct[node.id])) && (
+                  <text
+                    x={pos.x} y={pos.y + 45}
+                    fill="#cbd5e1"
+                    fontSize={8}
+                    textAnchor="middle"
+                    style={{ pointerEvents: 'none', fontFamily: 'monospace' }}
+                  >
+                    Impact {Number(serviceImpactPct[node.id]).toFixed(1)}%
+                  </text>
+                )}
 
                 {/* Cascade step badge */}
                 {cascadeSet.has(node.id) && !isRoot && (
@@ -318,13 +299,10 @@ export default function DependencyGraph({
   )
 }
 
-function LegendItem({ color, label, bar = false }) {
+function LegendItem({ color, label }) {
   return (
     <span className="flex items-center gap-1">
-      {bar
-        ? <span className="w-3 h-1.5 rounded-sm" style={{ backgroundColor: color }} />
-        : <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-      }
+      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
       {label}
     </span>
   )
@@ -355,9 +333,6 @@ function NodeTooltip({ node, pos, metrics, isRoot, cascadeIdx }) {
               P99: <span className="text-slate-200">{Math.round((metrics.p99_latency_s ?? 0) * 1000)}ms</span>
             </p>
           </>
-        )}
-        {node.cascade_effect_pct > 0 && (
-          <p className="text-amber-300 mt-0.5">{node.cascade_effect_pct}% impact</p>
         )}
       </div>
     </foreignObject>

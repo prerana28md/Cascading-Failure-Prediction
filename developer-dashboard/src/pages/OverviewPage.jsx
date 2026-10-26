@@ -10,7 +10,7 @@ import IncidentFeed   from '../components/IncidentFeed'
 import FeatureImportance from '../components/FeatureImportance'
 import { deriveServiceKeys } from '../lib/api'
 
-export default function OverviewPage({ data, riskHistory, metricHistory, loading, setPage }) {
+export default function OverviewPage({ data, workload = 'omnistore', riskHistory, metricHistory, loading, setPage }) {
   const systemStatus    = deriveSystemStatus(data)
   const riskLevel       = data?.system?.prometheus_connected === false
     && (data?.system?.num_services_down ?? 0) === 0
@@ -18,7 +18,7 @@ export default function OverviewPage({ data, riskHistory, metricHistory, loading
     : data?.risk_level ?? 'LOW'
   const confidence      = data?.confidence          ?? null
   const confPct         = confidence != null ? (confidence * 100).toFixed(1) : null
-  const serviceKeys     = deriveServiceKeys(data?.live_metrics)
+  const serviceKeys     = deriveServiceKeys(data?.live_metrics, workload)
   const affectedCount   = data?.affected_services ?? 0
   const affectedPct     = data?.affected_service_percentage
     ?? (serviceKeys.length ? affectedCount / serviceKeys.length * 100 : 0)
@@ -117,7 +117,10 @@ export default function OverviewPage({ data, riskHistory, metricHistory, loading
         {/* Prediction factors */}
         <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
           <p className="text-[11px] text-slate-500 uppercase tracking-wider font-medium mb-3">Prediction Factors</p>
-          <FeatureImportance importances={importances} maxItems={6} loading={loading} />
+          {workload === 'moviestream'
+            ? <p className="text-xs text-slate-500 italic">MovieStream uses topology-based rule analysis; OmniStore model feature rankings are not applicable.</p>
+            : <FeatureImportance importances={importances} maxItems={6} loading={loading} />
+          }
         </div>
 
       </div>

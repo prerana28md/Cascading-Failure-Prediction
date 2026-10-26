@@ -1,12 +1,9 @@
 import React, { useState } from 'react';
 import { Package, Search, RefreshCw, Compass, Clock, CheckCircle2, XCircle, AlertCircle, AlertTriangle } from 'lucide-react';
 
-export default function OrdersList({ orders, loading, error, serviceHealth, onRefresh, onSelectTrackOrder }) {
+export default function OrdersList({ orders, loading, error, onRefresh, onSelectTrackOrder }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
-
-  const isFaulted = serviceHealth?.fault && serviceHealth.fault !== 'NONE';
-  const faultType = serviceHealth?.fault;
 
   const filteredOrders = (orders || []).filter(order => {
     const matchesSearch = 
@@ -38,14 +35,14 @@ export default function OrdersList({ orders, loading, error, serviceHealth, onRe
       return (
         <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-500/50">
           <XCircle className="w-3 h-3 mr-1" />
-          PAYMENT FAILED
+          Payment issue
         </span>
       );
     } else {
       return (
         <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30">
           <XCircle className="w-3 h-3 mr-1" />
-          {s || 'FAILED'}
+          {s === 'FAILED' ? 'Not completed' : s || 'Not completed'}
         </span>
       );
     }
@@ -58,11 +55,11 @@ export default function OrdersList({ orders, loading, error, serviceHealth, onRe
         <div className="space-y-1">
           <div className="flex items-center space-x-2 text-indigo-400 text-xs font-semibold">
             <Package className="w-4 h-4" />
-            <span>Order Microservice (/orders) &bull; Port :8081</span>
+            <span>Order history</span>
           </div>
-          <h2 className="text-xl font-bold text-white">Orders Directory</h2>
+          <h2 className="text-xl font-bold text-white">My Orders</h2>
           <p className="text-slate-400 text-xs">
-            Viewing live order entity records processed through Order Service.
+            View your recent purchases and their current status.
           </p>
         </div>
 
@@ -76,19 +73,14 @@ export default function OrdersList({ orders, loading, error, serviceHealth, onRe
       </div>
 
       {/* Outage / Fault Notice */}
-      {(error || isFaulted) && (
+      {error && (
         <div className="p-5 rounded-2xl bg-rose-950/80 border border-rose-800/80 text-rose-200 text-xs space-y-2 shadow-lg animate-in fade-in duration-200">
           <div className="flex items-center space-x-2 font-bold text-sm text-rose-300">
             <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0" />
-            <span>Order Microservice Outage Detected</span>
-            {faultType && (
-              <span className="px-2 py-0.5 rounded bg-rose-900 border border-rose-700 text-[10px] font-extrabold uppercase">
-                {faultType}
-              </span>
-            )}
+            <span>Unable to load orders</span>
           </div>
           <p className="text-slate-300">
-            {error || `Order Service (:8081) is experiencing a ${faultType} fault. Order processing and retrieval are currently impacted.`}
+            {error}
           </p>
         </div>
       )}
@@ -99,7 +91,7 @@ export default function OrdersList({ orders, loading, error, serviceHealth, onRe
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
           <input
             type="text"
-            placeholder="Search Order ID or Customer ID..."
+            placeholder="Search Order ID..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-4 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
@@ -117,7 +109,7 @@ export default function OrdersList({ orders, loading, error, serviceHealth, onRe
                   : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
               }`}
             >
-              {st}
+              {st === 'ALL' ? 'All orders' : st === 'PAYMENT_FAILED' ? 'Payment issue' : st === 'FAILED' ? 'Not completed' : st.toLowerCase()}
             </button>
           ))}
         </div>
@@ -129,18 +121,16 @@ export default function OrdersList({ orders, loading, error, serviceHealth, onRe
           <thead className="bg-slate-950 text-slate-400 font-semibold border-b border-slate-800 uppercase tracking-wider text-[10px]">
             <tr>
               <th className="py-3.5 px-4">Order ID</th>
-              <th className="py-3.5 px-4">Customer ID</th>
-              <th className="py-3.5 px-4">Product ID</th>
               <th className="py-3.5 px-4">Qty</th>
               <th className="py-3.5 px-4">Amount</th>
               <th className="py-3.5 px-4">Status</th>
-              <th className="py-3.5 px-4 text-right">Lifecycle Actions</th>
+              <th className="py-3.5 px-4 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/60 font-mono">
             {loading && (
               <tr>
-                <td colSpan="7" className="py-8 text-center text-slate-500 font-sans">
+                <td colSpan="5" className="py-8 text-center text-slate-500 font-sans">
                   <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-indigo-400" />
                   <span>Loading orders...</span>
                 </td>
@@ -150,8 +140,6 @@ export default function OrdersList({ orders, loading, error, serviceHealth, onRe
             {!loading && filteredOrders.map((order) => (
               <tr key={order.id} className="hover:bg-slate-800/40 transition">
                 <td className="py-3.5 px-4 font-bold text-indigo-300">#{order.id}</td>
-                <td className="py-3.5 px-4 font-sans text-slate-300">User-{order.customerId}</td>
-                <td className="py-3.5 px-4 text-slate-300">PRD-{order.productId}</td>
                 <td className="py-3.5 px-4 font-bold">{order.quantity}</td>
                 <td className="py-3.5 px-4 font-bold text-emerald-400">${Number(order.amount || 0).toFixed(2)}</td>
                 <td className="py-3.5 px-4">
@@ -163,7 +151,7 @@ export default function OrdersList({ orders, loading, error, serviceHealth, onRe
                     className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 text-xs font-semibold transition"
                   >
                     <Compass className="w-3.5 h-3.5" />
-                    <span>Track Trace</span>
+                    <span>Track order</span>
                   </button>
                 </td>
               </tr>
@@ -171,11 +159,11 @@ export default function OrdersList({ orders, loading, error, serviceHealth, onRe
 
             {!loading && filteredOrders.length === 0 && (
               <tr>
-                <td colSpan="7" className="py-10 text-center text-slate-500 font-sans">
-                  {isFaulted || error ? (
+                <td colSpan="5" className="py-10 text-center text-slate-500 font-sans">
+                  {error ? (
                     <div className="space-y-1">
                       <p className="text-rose-300 font-semibold">Orders unavailable</p>
-                      <p className="text-xs text-slate-500">Service is down or unreachable. Orders will appear once order-service recovers.</p>
+                      <p className="text-xs text-slate-500">Please try again in a moment.</p>
                     </div>
                   ) : (
                     <span>No orders found.</span>

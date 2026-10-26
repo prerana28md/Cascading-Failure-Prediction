@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, User, Lock, ShieldCheck, UserPlus, LogIn, Sparkles, AlertCircle } from 'lucide-react';
+import { X, User, Lock, UserPlus, LogIn, Sparkles, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
 
 export default function AuthModal({
@@ -10,7 +10,6 @@ export default function AuthModal({
   const [tab, setTab] = useState('LOGIN'); // 'LOGIN' | 'REGISTER'
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState('CUSTOMER');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -26,14 +25,14 @@ export default function AuthModal({
       if (tab === 'LOGIN') {
         res = await api.login(username, password);
       } else {
-        res = await api.register(username, password, role === 'ADMIN' ? 'ADMIN' : 'USER');
+        res = await api.register(username, password, 'USER');
       }
 
       setLoading(false);
       if (res.error) {
         setError(res.error);
       } else {
-        const user = api.getCurrentUser() || { username, role };
+        const user = api.getCurrentUser() || { username, role: 'USER' };
         if (onLoginSuccess) onLoginSuccess(user);
         onClose();
       }
@@ -72,7 +71,7 @@ export default function AuthModal({
               <h2 className="text-base font-bold text-white">
                 {tab === 'LOGIN' ? 'Sign In to OmniStore' : 'Create Customer Account'}
               </h2>
-              <p className="text-xs text-slate-400">Real JWT Auth via Order Service (:8081)</p>
+              <p className="text-xs text-slate-400">Sign in to manage your account and orders.</p>
             </div>
           </div>
           <button
@@ -147,22 +146,6 @@ export default function AuthModal({
             />
           </div>
 
-          {tab === 'REGISTER' && (
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
-                Account Role
-              </label>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-              >
-                <option value="CUSTOMER">Customer (Standard Shopping)</option>
-                <option value="ADMIN">System Administrator (Full Microservices Access)</option>
-              </select>
-            </div>
-          )}
-
           <button
             type="submit"
             disabled={loading}
@@ -179,7 +162,7 @@ export default function AuthModal({
             <span>Quick 1-Click Demo Login</span>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2">
             <button
               type="button"
               onClick={() => handleDemoLogin('CUSTOMER')}
@@ -188,16 +171,6 @@ export default function AuthModal({
             >
               <span className="block font-bold text-emerald-400">Demo Customer</span>
               <span className="text-[10px] text-slate-500">alice &bull; Shopping Mode</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleDemoLogin('ADMIN')}
-              disabled={loading}
-              className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 hover:border-indigo-500/50 text-slate-300 hover:text-indigo-300 text-xs font-medium transition text-left"
-            >
-              <span className="block font-bold text-indigo-400">Demo Admin</span>
-              <span className="text-[10px] text-slate-500">admin &bull; Full Console</span>
             </button>
           </div>
         </div>

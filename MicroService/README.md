@@ -42,7 +42,7 @@ Observability (all services → these):
 | grafana              | 3001  | Observability dashboards      |
 | loki                 | 3100  | Log aggregation               |
 | jaeger               | 16686 | Distributed trace UI          |
-| mongodb              | 27017 | Persistent local application data |
+| mongodb              | 27018 | Persistent local application data (host port; container port 27017) |
 
 ---
 
@@ -51,9 +51,9 @@ Observability (all services → these):
 Start a local MongoDB server on `localhost:27017` before launching the Spring services.
 
 ```bash
-# 1. Build all Spring Boot JARs
+# 1. Build all Spring Boot JARs using the local Maven cache
 cd MicroService
-mvn clean package -DskipTests
+mvn -o package "-Dmaven.test.skip=true"
 
 # 2. Start each service (separate terminals)
 cd order-service      && mvn spring-boot:run
@@ -75,15 +75,15 @@ cd ../frontend && npm install && npm run dev
 ```bash
 cd MicroService
 
-# Build JARs first (Dockerfiles copy pre-built JAR from target/)
-mvn clean package -DskipTests
+# Build JARs first using the local Maven cache (Dockerfiles copy pre-built JARs)
+mvn -o package "-Dmaven.test.skip=true"
 
 # Start everything — local MongoDB, microservices + observability stack
 docker compose up --build
 ```
 
-MongoDB data is persisted in the `mongodb-data` Docker volume. The default database URI is local to the Compose network, so application reads and writes do not require Internet access. Each service can be pointed at another MongoDB deployment with its corresponding `*_MONGODB_URI` environment variable (for example `ORDER_MONGODB_URI`).
-For a fully offline startup, the MongoDB and application images plus Maven dependencies must already be cached locally; the first image/dependency build may require downloads.
+MongoDB data is persisted in the `mongodb-data` Docker volume. The database is published on host port `27018` by default to avoid conflicting with a MongoDB instance already using `27017`; set `MONGODB_HOST_PORT` in the environment to choose another available host port. Containers connect to MongoDB on its internal port `27017`, so this host-port change does not affect service connections. The default database URI is local to the Compose network, so application reads and writes do not require Internet access. Each service can be pointed at another MongoDB deployment with its corresponding `*_MONGODB_URI` environment variable (for example `ORDER_MONGODB_URI`).
+The Java images copy prebuilt JARs, so `docker compose up --build` does not contact Maven Central. Build the JARs first as shown above; this works offline when the required dependencies are already present in the local Maven cache. Docker base images and observability images must also already be available locally for a fully offline startup.
 
 Startup order (automatic via health checks):
 1. Jaeger, Prometheus, Loki, MongoDB → start immediately

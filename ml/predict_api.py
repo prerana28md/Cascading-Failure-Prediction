@@ -15,6 +15,7 @@ import os
 import threading
 import time
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from collections import deque
 
 warnings.filterwarnings("ignore")
@@ -337,9 +338,13 @@ def _probe(url: str, path: str = "", timeout: float = 1.5) -> dict:
 
 
 def observability_status() -> dict:
-    prom   = _probe(PROMETHEUS_URL, "/-/healthy")
-    graf   = _probe(GRAFANA_URL,    "/api/health")
-    jaeger = _probe(JAEGER_URL,     "/")
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        prom_future = executor.submit(_probe, PROMETHEUS_URL, "/-/healthy")
+        graf_future = executor.submit(_probe, GRAFANA_URL, "/api/health")
+        jaeger_future = executor.submit(_probe, JAEGER_URL, "/")
+        prom = prom_future.result()
+        graf = graf_future.result()
+        jaeger = jaeger_future.result()
     return {
         "prometheus": {**prom,   "url": PROMETHEUS_URL},
         "grafana":    {**graf,   "url": GRAFANA_URL},
@@ -369,76 +374,121 @@ def _probe_service_faults(services=None) -> dict:
         services = SERVICES
     import requests as req
     gateway = os.getenv("GATEWAY_URL", "http://localhost:8080")
-    result  = {}
-
-    for svc in services:
+    def probe(svc):
         port = SERVICE_PORTS.get(svc)
-        probed = False
         if port:
             try:
                 r = req.get(f"http://localhost:{port}/fault/status", timeout=0.3)
                 if r.status_code == 200:
                     data = r.json()
-                    result[svc] = {
+                    return svc, {
                         "fault":   str(data.get("fault", data.get("faultType", "NONE"))).upper(),
                         "delayMs": int(data.get("delayMs", data.get("delay_ms", 0)) or 0),
                         "probed":  True,
                     }
-                    probed = True
             except Exception:
                 pass
 
-        if not probed:
-            try:
-                r = req.get(f"{gateway}/fault/{svc}-service/status", timeout=0.5)
-                if r.status_code == 200:
-                    data = r.json()
-                    result[svc] = {
-                        "fault":   str(data.get("fault", data.get("faultType", "NONE"))).upper(),
-                        "delayMs": int(data.get("delayMs", data.get("delay_ms", 0)) or 0),
-                        "probed":  True,
-                    }
-                else:
-                    result[svc] = {"fault": "NONE", "delayMs": 0, "probed": False}
-            except Exception:
-                result[svc] = {"fault": "NONE", "delayMs": 0, "probed": False}
+        try:
+            r = req.get(f"{gateway}/fault/{svc}-service/status", timeout=0.5)
+            if r.status_code == 200:
+                data = r.json()
+                return svc, {
+                    "fault":   str(data.get("fault", data.get("faultType", "NONE"))).upper(),
+                    "delayMs": int(data.get("delayMs", data.get("delay_ms", 0)) or 0),
+                    "probed":  True,
+                }
+        except Exception:
+            pass
+        return svc, {"fault": "NONE", "delayMs": 0, "probed": False}
 
-    return result
+    with ThreadPoolExecutor(max_workers=max(1, len(services))) as executor:
+        return dict(executor.map(probe, services))
 
 
 # ── Prometheus scraper ────────────────────────────────────────────────────────
-def _prom(query):
+def _prom_series(query, label_name, timeout=2.0):
     try:
         import requests as req
         import math
         r = req.get(f"{PROMETHEUS_URL}/api/v1/query",
-                    params={"query": query}, timeout=1.5)
-        if r.status_code == 200:
-            res = r.json().get("data", {}).get("result", [])
-            if res and len(res) > 0:
-                val = float(res[0]["value"][1])
-                return 0.0 if (math.isnan(val) or math.isinf(val)) else val
-        return 0.0
-    except Exception:
-        return 0.0
+                    params={"query": query}, timeout=timeout)
+        r.raise_for_status()
+        payload = r.json()
+        if payload.get("status") != "success":
+            raise ValueError("Prometheus returned an unsuccessful query response")
+        values = {}
+        for series in payload.get("data", {}).get("result", []):
+            label_value = series.get("metric", {}).get(label_name)
+            if label_value is None:
+                continue
+            value = float(series["value"][1])
+            values[label_value] = 0.0 if (math.isnan(value) or math.isinf(value)) else value
+        return values
+    except Exception as exc:
+        print(f"[WARN] Prometheus query failed: {exc}")
+        return None
 
 
 def scrape(workload="omnistore") -> dict:
     # 1m window rates and histogram quantiles for real-time responsiveness
     services = WORKLOAD_SERVICES.get(workload, SERVICES)
+    app_selector = "|".join(f"{svc}-service" for svc in services)
     queries = {
-        "request_rate":   'sum(rate(http_server_requests_seconds_count{{application="{s}-service"}}[1m]))',
-        "error_rate_5xx": 'sum(rate(http_server_requests_seconds_count{{application="{s}-service",status=~"5.."}}[1m]))',
-        "error_rate_4xx": 'sum(rate(http_server_requests_seconds_count{{application="{s}-service",status=~"4.."}}[1m]))',
-        "p99_latency_s":  'histogram_quantile(0.99,sum(rate(http_server_requests_seconds_bucket{{application="{s}-service"}}[1m]))by(le))',
-        "p95_latency_s":  'histogram_quantile(0.95,sum(rate(http_server_requests_seconds_bucket{{application="{s}-service"}}[1m]))by(le))',
-        "p50_latency_s":  'histogram_quantile(0.50,sum(rate(http_server_requests_seconds_bucket{{application="{s}-service"}}[1m]))by(le))',
-        "jvm_heap_mb":    'jvm_memory_used_bytes{{application="{s}-service",area="heap"}}/1048576',
-        "active_threads": 'tomcat_threads_busy_threads{{application="{s}-service"}}',
-        "service_up":     'up{{job="{s}-service"}}',
+        "request_rate": (
+            f'sum by (application) (rate(http_server_requests_seconds_count'
+            f'{{application=~"{app_selector}"}}[1m]))',
+            "application",
+        ),
+        "error_rate_5xx": (
+            f'sum by (application) (rate(http_server_requests_seconds_count'
+            f'{{application=~"{app_selector}",status=~"5.."}}[1m]))',
+            "application",
+        ),
+        "error_rate_4xx": (
+            f'sum by (application) (rate(http_server_requests_seconds_count'
+            f'{{application=~"{app_selector}",status=~"4.."}}[1m]))',
+            "application",
+        ),
+        "p99_latency_s": (
+            f'histogram_quantile(0.99, sum by (application, le) (rate(http_server_requests_seconds_bucket'
+            f'{{application=~"{app_selector}"}}[1m])))',
+            "application",
+        ),
+        "p95_latency_s": (
+            f'histogram_quantile(0.95, sum by (application, le) (rate(http_server_requests_seconds_bucket'
+            f'{{application=~"{app_selector}"}}[1m])))',
+            "application",
+        ),
+        "p50_latency_s": (
+            f'histogram_quantile(0.50, sum by (application, le) (rate(http_server_requests_seconds_bucket'
+            f'{{application=~"{app_selector}"}}[1m])))',
+            "application",
+        ),
+        "jvm_heap_mb": (
+            f'sum by (application) (jvm_memory_used_bytes'
+            f'{{application=~"{app_selector}",area="heap"}}) / 1048576',
+            "application",
+        ),
+        "active_threads": (
+            f'sum by (application) (tomcat_threads_busy_threads'
+            f'{{application=~"{app_selector}"}})',
+            "application",
+        ),
+        "service_up": (
+            f'up{{job=~"{app_selector}"}}',
+            "job",
+        ),
     }
     raw = {}
-    prom_up = _is_prometheus_up()
+    with ThreadPoolExecutor(max_workers=len(queries) + 1) as executor:
+        health_future = executor.submit(_is_prometheus_up)
+        futures = {
+            metric: executor.submit(_prom_series, query, label)
+            for metric, (query, label) in queries.items()
+        }
+        prom_up = health_future.result()
+        metric_values = {metric: future.result() for metric, future in futures.items()}
 
     if not prom_up:
         # Prometheus unreachable — mark all services up with zero metrics
@@ -447,8 +497,10 @@ def scrape(workload="omnistore") -> dict:
                 raw[f"{svc}_{k}"] = 1.0 if k == "service_up" else 0.0
     else:
         for svc in services:
-            for k, q in queries.items():
-                raw[f"{svc}_{k}"] = _prom(q.format(s=svc))
+            app_name = f"{svc}-service"
+            for metric, (_, label_name) in queries.items():
+                label_value = app_name if label_name == "application" else app_name
+                raw[f"{svc}_{metric}"] = (metric_values[metric] or {}).get(label_value, 0.0)
 
     # ── Fault-aware metadata & controlled DOWN detection ──────────────────────
     try:
@@ -696,20 +748,6 @@ def dependency_graph(raw: dict, root_causes: list, workload: str = "omnistore") 
         status = d.get("status", "NORMAL")
         err    = d.get("err", 0)
         p99    = d.get("p99", 0)
-        up     = d.get("up",  1)
-
-        if status == "ROOT_CAUSE" or up == 0:
-            effect_pct = 100.0
-        elif n in cascade_path:
-            base_effect = 85.0 if cascade_path.index(n) == 1 else 65.0
-            add_err = min(15.0, (err / 0.1) * 15.0) if err > 0 else 0.0
-            add_lat = min(15.0, (p99 / 2.0) * 15.0) if p99 > 0 else 0.0
-            effect_pct = min(99.0, round(base_effect + add_err + add_lat, 1))
-        elif err > 0.01 or p99 > 0.5:
-            effect_pct = min(80.0, round((err / 0.1) * 50.0 + (p99 / 2.0) * 30.0 + 20.0, 1))
-        else:
-            effect_pct = 0.0
-
         nodes.append({
             "id":                 n,
             "label":              d.get("label", n),
@@ -720,7 +758,6 @@ def dependency_graph(raw: dict, root_causes: list, workload: str = "omnistore") 
             "betweenness":        round(float(bc.get(n, 0)), 4),
             "error_rate":         round(float(err), 4),
             "p99_latency":        round(float(p99), 4),
-            "cascade_effect_pct": effect_pct,
         })
 
     edges = []
@@ -2046,7 +2083,7 @@ def full_pipeline(raw: dict, workload: str = "omnistore") -> dict:
     z        = zscore_analysis(raw, workload=workload)
     t        = temporal_analysis(raw, workload=workload)
     nx_data  = dependency_graph(raw, causes, workload=workload)
-    fi       = feature_importances()
+    fi       = feature_importances() if workload == "omnistore" else []
     sla      = sla_compliance(raw, workload=workload)
     obs      = observability_status()
     impact   = impact_analysis(raw, workload=workload)
