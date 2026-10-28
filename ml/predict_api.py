@@ -2402,6 +2402,7 @@ def incidents():
     return jsonify({"incidents": filtered, "count": len(filtered)})
 
 
+@app.route("/service-logs")
 @app.route("/api/service-logs")
 def service_logs():
     """Return recent logs for one allow-listed service from Loki or MovieStream files."""

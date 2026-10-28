@@ -1,12 +1,14 @@
 import React, { useState } from 'react'
 import IncidentFeed from '../components/IncidentFeed'
+import ServiceLogModal from '../components/ServiceLogModal'
+import ServiceLogViewer from '../components/ServiceLogViewer'
 import { deriveServiceKeys, clearIncidents, resolveIncident, WORKLOAD_SERVICES, WORKLOAD_PORTS, fmtMetric } from '../lib/api'
 import { toLabel, SERVICE_COLOR } from '../components/ServiceCard'
 import { deriveServiceStatus, SERVICE_STATUS_CFG } from '../components/SystemStatus'
 import {
   X, User, FileText, CheckCircle, AlertTriangle, Send,
   Server, Flame, Activity, Trash2, Filter, ChevronRight,
-  RefreshCw, Shield, Clock, Zap
+  RefreshCw, Shield, Clock, Zap, Terminal, ScrollText
 } from 'lucide-react'
 
 export default function IncidentsPage({ data, loading, onRefresh, workload = 'omnistore' }) {
@@ -24,6 +26,11 @@ export default function IncidentsPage({ data, loading, onRefresh, workload = 'om
   const [noteSubmitting, setNoteSubmitting] = useState(false)
   const [noteError, setNoteError] = useState('')
   const [noteSuccess, setNoteSuccess] = useState(false)
+
+  // Service Log modal and inline log states
+  const [logModalOpen, setLogModalOpen] = useState(false)
+  const [logModalService, setLogModalService] = useState('order')
+  const [showInlineLogs, setShowInlineLogs] = useState(false)
 
   // Workload-specific microservice keys
   const activeWorkloadServices = WORKLOAD_SERVICES[workload] ?? deriveServiceKeys(liveMetrics)
@@ -93,6 +100,12 @@ export default function IncidentsPage({ data, loading, onRefresh, workload = 'om
     setNoteSuccess(false)
   }
 
+  function openLogModal(svcKey = null) {
+    const target = svcKey || (selectedService !== 'ALL' ? selectedService : activeWorkloadServices[0]) || 'order'
+    setLogModalService(target)
+    setLogModalOpen(true)
+  }
+
   async function submitNote() {
     if (!noteName.trim()) { setNoteError('Please enter your name.'); return }
     if (!noteText.trim()) { setNoteError('Please enter a resolution note.'); return }
@@ -136,12 +149,22 @@ export default function IncidentsPage({ data, loading, onRefresh, workload = 'om
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Option to view log of a particular service */}
+          <button
+            onClick={() => openLogModal(selectedService !== 'ALL' ? selectedService : activeWorkloadServices[0])}
+            className="text-[11px] px-3 py-1.5 rounded-lg border border-indigo-700/60 bg-indigo-950/40 text-indigo-300 hover:bg-indigo-900/50 hover:text-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm"
+            title="Open live microservice log viewer"
+          >
+            <Terminal size={12} className="text-indigo-400" />
+            <span>View Service Logs</span>
+          </button>
+
           {selectedService !== 'ALL' && (
             <button
               onClick={() => handleClear(selectedService)}
               disabled={clearing || incidentCountByService[selectedService] === 0}
-              className="text-[11px] px-3 py-1.5 rounded border border-red-900/50 bg-red-950/30 text-red-300 hover:bg-red-900/40 transition-colors disabled:opacity-40 flex items-center gap-1.5"
+              className="text-[11px] px-3 py-1.5 rounded-lg border border-red-900/50 bg-red-950/30 text-red-300 hover:bg-red-900/40 transition-colors disabled:opacity-40 flex items-center gap-1.5"
             >
               <Trash2 size={11} /> Clear {toLabel(selectedService).replace(' Service', '')} Log
             </button>
@@ -150,7 +173,7 @@ export default function IncidentsPage({ data, loading, onRefresh, workload = 'om
           <button
             onClick={() => handleClear(null)}
             disabled={clearing || incidents.length === 0}
-            className="text-[11px] px-3 py-1.5 rounded border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-40 flex items-center gap-1.5"
+            className="text-[11px] px-3 py-1.5 rounded-lg border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-40 flex items-center gap-1.5"
           >
             <RefreshCw size={11} className={clearing ? 'animate-spin' : ''} /> Clear All Workload Log
           </button>
@@ -171,7 +194,7 @@ export default function IncidentsPage({ data, loading, onRefresh, workload = 'om
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
           {/* ALL Microservices tab */}
           <button
-            onClick={() => setSelectedService('ALL')}
+            onClick={() => { setSelectedService('ALL'); setShowInlineLogs(false) }}
             className={`px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all whitespace-nowrap ${
               selectedService === 'ALL'
                 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950'
@@ -252,13 +275,37 @@ export default function IncidentsPage({ data, loading, onRefresh, workload = 'om
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
               {selCfg && (
                 <span className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full border ${selCfg.badge || ''}`}>
                   <span className={`w-2 h-2 rounded-full ${selCfg.dot} ${selStatus === 'DOWN' ? 'animate-pulse' : ''}`} />
                   {selCfg.label}
                 </span>
               )}
+
+              {/* View Logs Button (opens modal for this service) */}
+              <button
+                onClick={() => openLogModal(selectedService)}
+                className="text-[11px] font-medium px-3 py-1 rounded-lg border border-indigo-700/60 bg-indigo-950/40 text-indigo-300 hover:bg-indigo-900/50 hover:text-indigo-200 transition-colors flex items-center gap-1.5"
+                title={`View modal log viewer for ${toLabel(selectedService)}`}
+              >
+                <Terminal size={12} className="text-indigo-400" />
+                <span>View {toLabel(selectedService).replace(' Service', '')} Logs</span>
+              </button>
+
+              {/* Toggle Inline Logs */}
+              <button
+                onClick={() => setShowInlineLogs(v => !v)}
+                className={`text-[11px] font-medium px-2.5 py-1 rounded-lg border transition-colors flex items-center gap-1.5 ${
+                  showInlineLogs
+                    ? 'border-indigo-600 bg-indigo-600 text-white shadow-sm'
+                    : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+                title="Toggle inline log viewer on this page"
+              >
+                <ScrollText size={12} />
+                <span>{showInlineLogs ? 'Hide Inline Logs' : 'Inline Logs'}</span>
+              </button>
             </div>
           </div>
 
@@ -289,6 +336,20 @@ export default function IncidentsPage({ data, loading, onRefresh, workload = 'om
               </p>
             </div>
           </div>
+
+          {/* Inline Service Log Viewer if enabled */}
+          {showInlineLogs && (
+            <div className="pt-3 border-t border-slate-800">
+              <ServiceLogViewer
+                serviceKey={selectedService}
+                workload={workload}
+                availableServices={activeWorkloadServices}
+                onSelectService={setSelectedService}
+                embedded={false}
+                heightClass="max-h-[380px]"
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -313,10 +374,12 @@ export default function IncidentsPage({ data, loading, onRefresh, workload = 'om
           ))}
         </div>
 
-        <span className="text-[11px] text-slate-500">
-          Showing <strong className="text-slate-300">{filteredIncidents.length}</strong> incident logs
-          {selectedService !== 'ALL' && <span> for <strong className="text-indigo-400">{toLabel(selectedService)}</strong></span>}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-[11px] text-slate-500">
+            Showing <strong className="text-slate-300">{filteredIncidents.length}</strong> incident logs
+            {selectedService !== 'ALL' && <span> for <strong className="text-indigo-400">{toLabel(selectedService)}</strong></span>}
+          </span>
+        </div>
       </div>
 
       {/* Incident Feed */}
@@ -331,6 +394,7 @@ export default function IncidentsPage({ data, loading, onRefresh, workload = 'om
           maxItems={0}
           compact={false}
           onAddNote={openNoteModal}
+          onViewLogs={openLogModal}
         />
       )}
 
@@ -451,6 +515,15 @@ export default function IncidentsPage({ data, loading, onRefresh, workload = 'om
           </div>
         </div>
       )}
+
+      {/* View Service Logs Modal */}
+      <ServiceLogModal
+        isOpen={logModalOpen}
+        onClose={() => setLogModalOpen(false)}
+        serviceKey={logModalService || (selectedService !== 'ALL' ? selectedService : activeWorkloadServices[0])}
+        workload={workload}
+        availableServices={activeWorkloadServices}
+      />
 
     </div>
   )

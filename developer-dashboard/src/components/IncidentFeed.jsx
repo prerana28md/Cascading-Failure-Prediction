@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { AlertTriangle, XCircle, Clock, CheckCircle, Info, ChevronDown, ChevronUp, User, FileText } from 'lucide-react'
+import { AlertTriangle, XCircle, Clock, CheckCircle, Info, ChevronDown, ChevronUp, User, FileText, Terminal } from 'lucide-react'
 import { toLabel } from './ServiceCard'
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -39,6 +39,7 @@ const SEV_BADGE = {
  *   filterService  string|null
  *   compact        bool     shorter variant (no metric detail, no resolution note)
  *   onAddNote      fn|null  (event) => void  — if provided, shows "Add Note" on resolved rows
+ *   onViewLogs     fn|null  (serviceKey) => void — if provided, shows "Logs" button to view service logs
  */
 export default function IncidentFeed({
   incidents     = [],
@@ -47,6 +48,7 @@ export default function IncidentFeed({
   filterService = null,
   compact       = false,
   onAddNote     = null,
+  onViewLogs    = null,
 }) {
   if (loading) {
     return (
@@ -77,6 +79,7 @@ export default function IncidentFeed({
           event={event}
           compact={compact}
           onAddNote={onAddNote}
+          onViewLogs={onViewLogs}
         />
       ))}
     </div>
@@ -84,7 +87,7 @@ export default function IncidentFeed({
 }
 
 // ── Single incident row ───────────────────────────────────────────────────────
-export function IncidentRow({ event, compact = false, onAddNote = null }) {
+export function IncidentRow({ event, compact = false, onAddNote = null, onViewLogs = null }) {
   const [noteOpen, setNoteOpen] = useState(false)
 
   const cfg      = REASON_CFG[event.reason] ?? {
@@ -133,6 +136,18 @@ export function IncidentRow({ event, compact = false, onAddNote = null }) {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {/* View Service Logs button */}
+          {event.service && onViewLogs && !compact && (
+            <button
+              onClick={() => onViewLogs(event.service)}
+              title={`View logs for ${toLabel(event.service)}`}
+              className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-indigo-800/50 bg-indigo-950/30 text-indigo-300 hover:bg-indigo-950/60 hover:border-indigo-700 transition-colors"
+            >
+              <Terminal size={9} className="text-indigo-400" />
+              <span>Logs</span>
+            </button>
+          )}
+
           {/* View Note toggle — shown on resolved rows that have a note */}
           {resolved && hasNote && !compact && (
             <button
