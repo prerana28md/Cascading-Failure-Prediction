@@ -74,38 +74,72 @@ export default function GraphPage({ data, loading }) {
 
         {/* Cascade path */}
         <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
+          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">
             Potential Propagation Path
           </h2>
           {cascadePath.length === 0 ? (
             <p className="text-xs text-slate-500 italic">No root-cause path detected</p>
           ) : (
             <>
-              <div className="flex flex-col gap-2">
-                {cascadePath.map((svc, i) => (
-                  <div key={svc} className="flex items-center gap-2">
-                    <div className={`flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium border flex-1 ${
-                      i === 0
-                        ? 'bg-red-950/30 border-red-800/50 text-red-300'
-                        : 'bg-amber-950/20 border-amber-800/30 text-amber-300'
-                    }`}>
-                      <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
-                        style={{ background: i === 0 ? '#7f1d1d' : '#78350f' }}>
-                        {i + 1}
-                      </span>
-                      {toLabel(svc)}
-                      {i === 0 && (
-                        <span className="ml-auto text-[10px] text-red-400 font-bold">ROOT</span>
+              {/* Horizontal flowchart — wraps onto multiple rows if needed */}
+              <div className="flex flex-wrap items-center gap-y-3">
+                {cascadePath.map((svc, i) => {
+                  const isRoot   = i === 0
+                  const impactPct = data?.service_impact_pct?.[svc]
+
+                  return (
+                    <React.Fragment key={svc}>
+                      {/* Step node */}
+                      <div className={`flex flex-col items-center gap-1 min-w-[80px]`}>
+                        {/* Step number badge */}
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold
+                          ${isRoot ? 'bg-red-700 text-red-100' : 'bg-amber-800 text-amber-100'}`}>
+                          {i + 1}
+                        </div>
+
+                        {/* Service box */}
+                        <div className={`px-3 py-2 rounded-lg border text-center min-w-[76px] ${
+                          isRoot
+                            ? 'bg-red-950/40 border-red-700/60 text-red-200'
+                            : 'bg-amber-950/30 border-amber-700/40 text-amber-200'
+                        }`}>
+                          <p className="text-[11px] font-semibold leading-tight">
+                            {toLabel(svc).replace(' Service', '')}
+                          </p>
+                          {isRoot && (
+                            <p className="text-[9px] text-red-400 font-bold mt-0.5 uppercase tracking-wide">
+                              Root
+                            </p>
+                          )}
+                          {impactPct != null && (
+                            <p className={`text-[9px] font-mono mt-0.5 ${
+                              impactPct > 0 ? 'text-amber-400' : 'text-slate-500'
+                            }`}>
+                              {impactPct.toFixed(0)}% impact
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Arrow between steps */}
+                      {i < cascadePath.length - 1 && (
+                        <div className="flex items-center self-end pb-4 px-1">
+                          <div className="flex items-center gap-0.5">
+                            <div className="h-px w-5 bg-amber-700/60" />
+                            <svg width="8" height="10" viewBox="0 0 8 10" fill="none">
+                              <path d="M0 0 L8 5 L0 10 Z" fill="#92400e" />
+                            </svg>
+                          </div>
+                        </div>
                       )}
-                    </div>
-                    {i < cascadePath.length - 1 && (
-                      <span className="text-slate-600 text-xs">↓</span>
-                    )}
-                  </div>
-                ))}
+                    </React.Fragment>
+                  )
+                })}
               </div>
-              <p className="text-[11px] text-slate-600 mt-3">
-                The percentage above is topology-based reachability from detected root causes, not a failure probability. Observed impact values come from current service metrics; reachable services are possible impact targets, not confirmed failures.
+
+              <p className="text-[10px] text-slate-600 mt-4 leading-relaxed">
+                Topology-based reachability from detected root causes — not a confirmed failure probability.
+                Observed impact values come from current service metrics.
               </p>
             </>
           )}

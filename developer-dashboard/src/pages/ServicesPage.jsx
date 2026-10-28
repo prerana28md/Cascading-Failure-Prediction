@@ -208,10 +208,8 @@ function ComparativeChart({ metricHistory, serviceKeys, metric, title, unit, sla
         // Apply noise floor — show null (gap) when value is below threshold so
         // chart doesn't draw a spurious flat zero line; shows actual gaps instead
         pt[k] = raw === null ? null
-              : metric === 'error_rate_pct' && raw < 0.001 ? 0
-              : metric === 'p99'        && raw < NOISE_P99 ? 0
-              : metric === 'request_rate' && raw < NOISE_RR ? 0
-              : parseFloat(raw.toFixed(5))
+              : metric === 'error_rate_pct' && raw < 0.0001 ? 0
+              : parseFloat(Number(raw).toFixed(4))
       })
       return pt
     })
@@ -296,10 +294,8 @@ function ServiceHistoryChart({ snapshots, metric, color, title, unit, slaLine, a
     v: (() => {
       const raw = s[metric]
       if (raw == null) return null
-      if (metric === 'error_rate_pct' && raw < 0.001) return 0
-      if (metric === 'p99'          && raw < NOISE_P99) return 0
-      if (metric === 'request_rate' && raw < NOISE_RR)  return 0
-      return parseFloat(raw.toFixed(5))
+      if (metric === 'error_rate_pct' && raw < 0.0001) return 0
+      return parseFloat(Number(raw).toFixed(4))
     })(),
   })), [snapshots, metric])
 
@@ -336,9 +332,25 @@ function ServiceHistoryChart({ snapshots, metric, color, title, unit, slaLine, a
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey="time" tick={{ fontSize: 7, fill: '#475569' }} interval={tickInterval} tickLine={false} />
             <YAxis
-              domain={availability ? [0, 100] : undefined}
+              domain={
+                availability
+                  ? [0, 100]
+                  : metric === 'error_rate_pct'
+                    ? [0, dataMax => Math.max(Number(dataMax || 0) * 1.25, slaLine ? slaLine * 1.2 : 5)]
+                    : metric === 'p99'
+                      ? [0, dataMax => Math.max(Number(dataMax || 0) * 1.25, slaLine ? slaLine * 1.15 : 0.1, 0.05)]
+                      : metric === 'request_rate'
+                        ? [0, dataMax => Math.max(Number(dataMax || 0) * 1.25, 2.0)]
+                        : undefined
+              }
               ticks={availability ? [0, 100] : undefined}
-              tickFormatter={availability ? value => value === 100 ? 'UP' : 'DOWN' : undefined}
+              tickFormatter={
+                availability
+                  ? value => value === 100 ? 'UP' : 'DOWN'
+                  : metric === 'p99'
+                    ? val => val < 1 ? `${Math.round(val * 1000)}ms` : `${Number(val).toFixed(2)}s`
+                    : undefined
+              }
               tick={{ fontSize: 7, fill: '#475569' }}
               tickLine={false}
             />
@@ -462,9 +474,9 @@ function ServiceDetailPanel({ serviceKey, workload, metrics, snapshots, incident
   const sla    = SLA[serviceKey] ?? { maxErr: 0.01, maxP99: 1.0 }
 
   const errPct = errorPercentage(metrics)
-  const p99    = clean(metrics?.p99_latency_s, NOISE_P99)
-  const p50    = clean(metrics?.p50_latency_s, NOISE_P99)
-  const rr     = clean(metrics?.request_rate, NOISE_RR)
+  const p99    = metrics?.p99_latency_s ?? 0
+  const p50    = metrics?.p50_latency_s ?? 0
+  const rr     = metrics?.request_rate ?? 0
   const heap   = metrics?.jvm_heap_mb ?? 0
   const thrd   = metrics?.active_threads ?? 0
   const svcSla = slaData?.services?.[serviceKey]
@@ -547,7 +559,12 @@ function ServiceDetailPanel({ serviceKey, workload, metrics, snapshots, incident
                 <AlertTriangle size={12} className="text-amber-400 shrink-0 mt-0.5" />
                 <span className="text-amber-300">
                   <span className="font-semibold">{activeIncident.reason?.replace(/_/g, ' ')}</span>
-                  {activeIncident.value != null && <span className="ml-2 font-mono text-amber-400">{activeIncident.metric}: {activeIncident.value}</span>}
+                  {activeIncident.value != null && (
+                    <span className="ml-2 font-mono text-amber-400">
+                      {activeIncident.metric}: {activeIncident.value > 0 ? activeIncident.value : 'ACTIVE'}
+                      {activeIncident.value > 0 ? (activeIncident.metric?.includes('pct') || activeIncident.metric?.includes('rate') ? '%' : activeIncident.metric?.includes('latency') ? 's' : '') : ''}
+                    </span>
+                  )}
                 </span>
               </div>
             )}

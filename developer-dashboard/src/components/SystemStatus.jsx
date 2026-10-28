@@ -81,17 +81,25 @@ export function StatusRow({ status = 'UNKNOWN' }) {
  */
 export function deriveServiceStatus(metrics) {
   if (!metrics) return 'UNKNOWN'
-  const up  = metrics.service_up
+  const up    = metrics.service_up
+  const fault = strClean(metrics.fault)
   const requestRate = metrics.request_rate ?? 0
   const errPct = metrics.error_rate_pct
     ?? (requestRate > 0 ? (metrics.error_rate_5xx ?? 0) / requestRate * 100 : 0)
-  const p99 = (metrics.p99_latency_s  ?? 0) < 0.005 ? 0 : (metrics.p99_latency_s  ?? 0)
-  if (up === 0)                   return 'DOWN'
+  const p99 = (metrics.p99_latency_s ?? 0) < 0.005 ? 0 : (metrics.p99_latency_s ?? 0)
+
+  if (up === 0 || fault === 'DOWN') return 'DOWN'
+  if (fault === 'ERROR') return 'DEGRADED'
+  if (fault === 'LATENCY') return 'DEGRADED'
   if (metrics.metrics_available === false && up == null) return 'UNKNOWN'
   if (up == null && metrics.metrics_available === true) return 'UNKNOWN'
   if (errPct > 5 || p99 > 1.5)   return 'DEGRADED'
   if (errPct > 1 || p99 > 0.8)   return 'WARNING'
   return 'HEALTHY'
+}
+
+function strClean(s) {
+  return typeof s === 'string' ? s.trim().toUpperCase() : 'NONE'
 }
 
 export const SERVICE_STATUS_CFG = {

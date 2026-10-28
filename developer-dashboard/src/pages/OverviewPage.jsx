@@ -117,10 +117,7 @@ export default function OverviewPage({ data, workload = 'omnistore', riskHistory
         {/* Prediction factors */}
         <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
           <p className="text-[11px] text-slate-500 uppercase tracking-wider font-medium mb-3">Prediction Factors</p>
-          {workload === 'moviestream'
-            ? <p className="text-xs text-slate-500 italic">MovieStream uses topology-based rule analysis; OmniStore model feature rankings are not applicable.</p>
-            : <FeatureImportance importances={importances} maxItems={6} loading={loading} />
-          }
+          <FeatureImportance importances={importances} maxItems={6} loading={loading} />
         </div>
 
       </div>

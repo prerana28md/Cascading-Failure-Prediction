@@ -84,13 +84,14 @@ export default function App() {
               time,
               error_rate:     m.error_rate_5xx ?? 0,
               error_rate_pct: m.error_rate_pct ?? (
-                requestRate > 0 ? (m.error_rate_5xx ?? 0) / requestRate * 100 : null
+                requestRate > 0 ? (m.error_rate_5xx ?? 0) / requestRate * 100 : (m.fault === 'ERROR' ? 100 : 0)
               ),
               p99:             m.p99_latency_s ?? 0,
               p50:             m.p50_latency_s ?? 0,
               request_rate:    requestRate,
               availability_pct: m.service_up == null ? null : (m.service_up === 1 ? 100 : 0),
               service_up:      m.service_up ?? null,
+              fault:           m.fault ?? 'NONE',
             }
             next[k] = [...(next[k] ?? []).slice(-(MAX_HISTORY - 1)), snap]
           })

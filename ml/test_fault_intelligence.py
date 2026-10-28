@@ -176,7 +176,7 @@ class FaultIntelligenceTests(unittest.TestCase):
         self.assertEqual({event["service"] for event in pipeline_res["fault_events"]}, {"order"})
         self.assertEqual(pipeline_res["fault_events"][0]["active_faults"], 1)
 
-    def test_moviestream_pipeline_excludes_omnistore_model_factors(self):
+    def test_moviestream_pipeline_includes_moviestream_prediction_factors(self):
         movie_raw = {}
         for service in api.WORKLOAD_SERVICES["moviestream"]:
             movie_raw[f"{service}_service_up"] = 1.0
@@ -191,7 +191,15 @@ class FaultIntelligenceTests(unittest.TestCase):
         with patch.object(api, "_save_incident_log"), patch.object(api, "_save_fault_events"):
             result = api.full_pipeline(movie_raw, workload="moviestream")
 
-        self.assertEqual(result["feature_importances"], [])
+        self.assertIsInstance(result["feature_importances"], list)
+        self.assertGreater(len(result["feature_importances"]), 0)
+        # Ensure all features returned are related to moviestream services and not omnistore
+        for item in result["feature_importances"]:
+            self.assertIn("feature", item)
+            self.assertIn("importance", item)
+            feature_svc = item["feature"].split("_")[0]
+            self.assertIn(feature_svc, list(api.WORKLOAD_SERVICES["moviestream"]) + ["system"])
+            self.assertNotIn("jvm_heap_mb", item["feature"])
         self.assertEqual(
             {node["id"] for node in result["networkx_graph"]["nodes"]},
             set(api.WORKLOAD_SERVICES["moviestream"]),

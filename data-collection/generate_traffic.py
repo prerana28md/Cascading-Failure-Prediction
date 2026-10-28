@@ -30,8 +30,36 @@ SERVICES = {
     "shipping":     "http://localhost:8084",
     "delivery":     "http://localhost:8085",
     "notification": "http://localhost:8086",
+    "catalog":        "http://localhost:8087",
+    "user":           "http://localhost:8088",
+    "watchlist":      "http://localhost:8089",
+    "history":        "http://localhost:8092",
+    "recommendation": "http://localhost:8093",
 }
 
+def send_moviestream_recommendation(base_url: str = "http://localhost:8093"):
+    """GET /recommendations/user_1 — exercises recommendation cascade: user -> history -> watchlist -> catalog"""
+    try:
+        r = requests.get(f"{base_url}/recommendations/user_1", timeout=5)
+        return r.status_code, r.elapsed.total_seconds()
+    except Exception:
+        return 0, 0.0
+
+def send_moviestream_catalog(base_url: str = "http://localhost:8087"):
+    """GET /catalog/trending"""
+    try:
+        r = requests.get(f"{base_url}/catalog/trending", timeout=4)
+        return r.status_code, r.elapsed.total_seconds()
+    except Exception:
+        return 0, 0.0
+
+def send_moviestream_user(base_url: str = "http://localhost:8088"):
+    """GET /user/profile/user_1"""
+    try:
+        r = requests.get(f"{base_url}/user/profile/user_1", timeout=3)
+        return r.status_code, r.elapsed.total_seconds()
+    except Exception:
+        return 0, 0.0
 
 def send_inventory_read(base_url: str):
     """GET /inventory - lightweight query"""

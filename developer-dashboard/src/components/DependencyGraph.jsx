@@ -67,6 +67,7 @@ export default function DependencyGraph({
     if (cascadeSet.has(node.id)) return { fill: '#d97706', stroke: '#92400e', label: '#fde68a' }
     const svcMetrics = liveMetrics[node.id]
     const status = deriveServiceStatus(svcMetrics)
+    if (status === 'DOWN') return { fill: '#dc2626', stroke: '#991b1b', label: '#fca5a5' }
     if (status === 'DEGRADED' || status === 'WARNING') return { fill: '#d97706', stroke: '#92400e', label: '#fde68a' }
     return { fill: '#3b82f6', stroke: '#1d4ed8', label: '#bfdbfe' }
   }, [rootSet, cascadeSet, liveMetrics])
@@ -237,8 +238,9 @@ export default function DependencyGraph({
                 {Number.isFinite(Number(serviceImpactPct[node.id])) && (
                   <text
                     x={pos.x} y={pos.y + 45}
-                    fill="#cbd5e1"
+                    fill={Number(serviceImpactPct[node.id]) > 0 ? (isRoot ? '#fca5a5' : '#fde68a') : '#64748b'}
                     fontSize={8}
+                    fontWeight={Number(serviceImpactPct[node.id]) > 0 ? 600 : 400}
                     textAnchor="middle"
                     style={{ pointerEvents: 'none', fontFamily: 'monospace' }}
                   >
