@@ -331,6 +331,9 @@ export async function resetAllFaults(keys = KNOWN_SERVICES) {
       method: 'POST',
       body:   JSON.stringify({ service: 'ALL' }),
     })
+    try {
+      fetch('http://localhost:5001/api/fault/reset', { method: 'POST' }).catch(() => {})
+    } catch (_) {}
     if (!res.error) {
       return targetKeys.map(k => ({ key: k, ok: true, error: null }))
     }

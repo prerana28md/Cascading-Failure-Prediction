@@ -14,7 +14,7 @@
 
 export const ML_API     = import.meta.env.VITE_ML_API_URL     ?? ''        // '' → uses /api proxy
 export const GATEWAY    = import.meta.env.VITE_GATEWAY_URL    ?? '/gateway'
-export const POLL_MS    = 8000   // live metrics poll interval
+export const POLL_MS    = 3000   // live metrics poll interval — 3s for fast fault reflection
 
 // ── Generic fetch wrapper ────────────────────────────────────────────────────
 async function apiFetch(url, options = {}) {

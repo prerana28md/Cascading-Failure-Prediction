@@ -1,44 +1,25 @@
 import React from 'react'
 import DependencyGraph from '../components/DependencyGraph'
 import { toLabel } from '../components/ServiceCard'
+import { ShieldAlert, GitCommit, Layers, Clock, RefreshCw, Cpu } from 'lucide-react'
 
-/**
- * GraphPage — dependency graph + root cause + cascade path.
- *
- * Uses data.networkx_graph, data.root_cause, data.cascade_path, data.live_metrics.
- * No topology is hardcoded in this component.
- *
- * Props:
- *   data     object  — full /metrics/live response
- *   loading  bool
- */
 export default function GraphPage({ data, loading }) {
-  const graphData   = data?.networkx_graph ?? null
-  const rootCauses  = data?.root_cause     ?? []
-  const cascadePath = data?.cascade_path   ?? []
-  const liveMetrics = data?.live_metrics   ?? {}
+  const graphData    = data?.networkx_graph ?? null
+  const rootCauses   = data?.root_cause     ?? []
+  const cascadePath  = data?.cascade_path   ?? []
+  const liveMetrics  = data?.live_metrics   ?? {}
+  const serviceDetails = data?.service_details ?? {}
+  const depMetadata  = data?.dependency_metadata ?? []
 
   return (
-    <div className="space-y-5">
-
-      {/* Page header */}
-      <div>
-        <h1 className="text-base font-semibold text-slate-100">Dependency Graph</h1>
-        <p className="text-xs text-slate-500 mt-0.5">
-          Live dependency topology. The highlighted path shows possible downstream reachability, not a failure probability.
-        </p>
-      </div>
-
-      {/* Graph */}
+    <div className="space-y-6">
+      {/* Dependency Graph Canvas */}
       <DependencyGraph
         graphData={graphData}
         rootCauses={rootCauses}
         cascadePath={cascadePath}
         liveMetrics={liveMetrics}
         serviceImpactPct={data?.service_impact_pct ?? {}}
-        affectedPercentage={data?.affected_percentage}
-        affectedServices={data?.affected_services}
-        affectedServicePercentage={data?.affected_service_percentage}
         loading={loading && !graphData}
       />
 
@@ -46,90 +27,93 @@ export default function GraphPage({ data, loading }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         {/* Root causes */}
-        <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-            Root Cause Identification
-          </h2>
+        <div className="rounded-xl border border-slate-800 bg-[#0c1324] p-5 shadow-xl">
+          <div className="flex items-center gap-2 mb-3">
+            <ShieldAlert size={16} className="text-red-400" />
+            <h2 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+              Root Cause Diagnostics
+            </h2>
+          </div>
           {rootCauses.length === 0 ? (
-            <p className="text-xs text-slate-500 italic">No anomalies detected — system operating normally</p>
+            <p className="text-xs text-slate-500 italic">No active anomalies detected — system operating nominally</p>
           ) : (
-            <div className="space-y-2">
-              {rootCauses.map((c, i) => (
-                <div key={i} className="flex items-start gap-3 text-xs rounded-md bg-red-950/20 border border-red-900/40 px-3 py-2.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0 mt-1.5 animate-pulse" />
-                  <div>
-                    <p className="font-semibold text-red-300">{toLabel(c.service)}</p>
-                    <p className="text-slate-400 mt-0.5">{c.reason?.replace(/_/g, ' ')}</p>
+            <div className="space-y-2.5">
+              {rootCauses.map((c, i) => {
+                const detail = serviceDetails[c.service] ?? {}
+                return (
+                  <div key={i} className="flex flex-col gap-1 text-xs rounded-lg bg-red-950/25 border border-red-800/40 p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                        <span className="font-bold text-red-200">{toLabel(c.service)}</span>
+                      </div>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-red-900/60 text-red-300 font-semibold uppercase">
+                        {c.reason?.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                    {detail.reason && (
+                      <p className="text-slate-300 text-[11px] mt-1">{detail.reason}</p>
+                    )}
                     {c.metric && c.value != null && (
-                      <p className="text-slate-500 font-mono text-[10px] mt-0.5">
-                        {c.metric}: {c.value}
+                      <p className="text-slate-400 font-mono text-[10px] mt-0.5">
+                        Observed {c.metric}: <span className="text-red-300 font-semibold">{c.value}</span>
                       </p>
                     )}
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
 
         {/* Cascade path */}
-        <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">
-            Potential Propagation Path
-          </h2>
+        <div className="rounded-xl border border-slate-800 bg-[#0c1324] p-5 shadow-xl">
+          <div className="flex items-center gap-2 mb-3">
+            <GitCommit size={16} className="text-amber-400" />
+            <h2 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+              Cascading Propagation Sequence
+            </h2>
+          </div>
           {cascadePath.length === 0 ? (
-            <p className="text-xs text-slate-500 italic">No root-cause path detected</p>
+            <p className="text-xs text-slate-500 italic">No cascading failure path active</p>
           ) : (
             <>
-              {/* Horizontal flowchart — wraps onto multiple rows if needed */}
+              {/* Step pills */}
               <div className="flex flex-wrap items-center gap-y-3">
                 {cascadePath.map((svc, i) => {
-                  const isRoot   = i === 0
-                  const impactPct = data?.service_impact_pct?.[svc]
+                  const isRoot = i === 0
+                  const rawImpact = data?.service_impact_pct?.[svc] ?? 0
+                  const detail = serviceDetails[svc] ?? {}
 
                   return (
                     <React.Fragment key={svc}>
-                      {/* Step node */}
-                      <div className={`flex flex-col items-center gap-1 min-w-[80px]`}>
-                        {/* Step number badge */}
-                        <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold
-                          ${isRoot ? 'bg-red-700 text-red-100' : 'bg-amber-800 text-amber-100'}`}>
+                      <div className="flex flex-col items-center gap-1 min-w-[85px]">
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                          isRoot ? 'bg-red-600 text-white' : 'bg-orange-600 text-white'
+                        }`}>
                           {i + 1}
                         </div>
 
-                        {/* Service box */}
-                        <div className={`px-3 py-2 rounded-lg border text-center min-w-[76px] ${
+                        <div className={`px-2.5 py-1.5 rounded-lg border text-center min-w-[80px] ${
                           isRoot
-                            ? 'bg-red-950/40 border-red-700/60 text-red-200'
-                            : 'bg-amber-950/30 border-amber-700/40 text-amber-200'
+                            ? 'bg-red-950/60 border-red-700/80 text-red-200'
+                            : 'bg-orange-950/50 border-orange-700/60 text-orange-200'
                         }`}>
                           <p className="text-[11px] font-semibold leading-tight">
                             {toLabel(svc).replace(' Service', '')}
                           </p>
-                          {isRoot && (
-                            <p className="text-[9px] text-red-400 font-bold mt-0.5 uppercase tracking-wide">
-                              Root
-                            </p>
-                          )}
-                          {impactPct != null && (
-                            <p className={`text-[9px] font-mono mt-0.5 ${
-                              impactPct > 0 ? 'text-amber-400' : 'text-slate-500'
-                            }`}>
-                              {impactPct.toFixed(0)}% impact
-                            </p>
-                          )}
+                          <p className={`text-[9.5px] font-mono mt-0.5 font-bold ${isRoot ? 'text-red-300' : 'text-orange-300'}`}>
+                            {Number(rawImpact).toFixed(2)}%
+                          </p>
+                          <span className="text-[8px] uppercase tracking-wider font-semibold text-slate-400 block mt-0.5">
+                            {detail.impact_type ?? (isRoot ? 'ROOT_CAUSE' : 'DIRECT')}
+                          </span>
                         </div>
                       </div>
 
-                      {/* Arrow between steps */}
                       {i < cascadePath.length - 1 && (
-                        <div className="flex items-center self-end pb-4 px-1">
-                          <div className="flex items-center gap-0.5">
-                            <div className="h-px w-5 bg-amber-700/60" />
-                            <svg width="8" height="10" viewBox="0 0 8 10" fill="none">
-                              <path d="M0 0 L8 5 L0 10 Z" fill="#92400e" />
-                            </svg>
-                          </div>
+                        <div className="flex items-center self-center px-1 text-slate-500 font-bold text-xs">
+                          →
                         </div>
                       )}
                     </React.Fragment>
@@ -137,15 +121,69 @@ export default function GraphPage({ data, loading }) {
                 })}
               </div>
 
-              <p className="text-[10px] text-slate-600 mt-4 leading-relaxed">
-                Topology-based reachability from detected root causes — not a confirmed failure probability.
-                Observed impact values come from current service metrics.
+              <p className="text-[10px] text-slate-500 mt-4 leading-relaxed font-mono">
+                Propagation computed via live dependency contracts: timeout breaches, thread pool exhaustion, and circuit breaker trip states.
               </p>
             </>
           )}
         </div>
 
       </div>
+
+      {/* Dependency Architectural Metadata Contract */}
+      {depMetadata.length > 0 && (
+        <div className="rounded-xl border border-slate-800 bg-[#0c1324] p-5 shadow-xl">
+          <div className="flex items-center gap-2 mb-4">
+            <Layers size={16} className="text-indigo-400" />
+            <h2 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+              Architecture Dependency Matrix &amp; Resilience Configuration
+            </h2>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-slate-800 text-[10px] uppercase font-mono text-slate-400 bg-slate-900/50">
+                  <th className="py-2.5 px-3">Caller (Source)</th>
+                  <th className="py-2.5 px-3">Dependency (Target)</th>
+                  <th className="py-2.5 px-3">Type</th>
+                  <th className="py-2.5 px-3">Criticality</th>
+                  <th className="py-2.5 px-3">Timeout</th>
+                  <th className="py-2.5 px-3">Retries</th>
+                  <th className="py-2.5 px-3">Circuit Breaker</th>
+                  <th className="py-2.5 px-3">Fallback Strategy</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
+                {depMetadata.map((edge, idx) => (
+                  <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
+                    <td className="py-2 px-3 font-semibold text-slate-200">{toLabel(edge.source)}</td>
+                    <td className="py-2 px-3 font-semibold text-indigo-300">{toLabel(edge.target)}</td>
+                    <td className="py-2 px-3">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-sans capitalize ${
+                        edge.type === 'synchronous'
+                          ? 'bg-blue-950/70 border border-blue-800 text-blue-300'
+                          : edge.type === 'conditional'
+                          ? 'bg-purple-950/70 border border-purple-800 text-purple-300'
+                          : 'bg-emerald-950/70 border border-emerald-800 text-emerald-300'
+                      }`}>
+                        {edge.type}
+                      </span>
+                    </td>
+                    <td className="py-2 px-3 text-slate-300">{edge.criticality}</td>
+                    <td className="py-2 px-3 text-slate-400">{edge.timeout_ms ? `${edge.timeout_ms}ms` : '—'}</td>
+                    <td className="py-2 px-3 text-slate-400">{edge.retries ?? '—'}</td>
+                    <td className="py-2 px-3 text-emerald-400">{edge.circuit_breaker ?? 'Enabled'}</td>
+                    <td className="py-2 px-3 text-slate-400 font-sans text-[10.5px] max-w-xs truncate" title={edge.fallback}>
+                      {edge.fallback || edge.description || '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

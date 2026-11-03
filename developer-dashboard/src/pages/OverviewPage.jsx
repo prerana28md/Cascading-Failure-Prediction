@@ -1,28 +1,27 @@
-import React from 'react'
-import { AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts'
+import React, { useMemo } from 'react'
 import {
-  AlertTriangle, CheckCircle, Wrench,
-  XCircle, Clock, Bell,
+  AlertTriangle, CheckCircle, Bell, Wrench, ShieldAlert,
+  ArrowRight, ShieldCheck, Activity, Terminal
 } from 'lucide-react'
-import SystemStatus, { deriveSystemStatus } from '../components/SystemStatus'
-import ServiceCard    from '../components/ServiceCard'
-import IncidentFeed   from '../components/IncidentFeed'
+import { AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts'
+import SystemStatus from '../components/SystemStatus'
+import ServiceCard, { toLabel } from '../components/ServiceCard'
 import FeatureImportance from '../components/FeatureImportance'
-import { deriveServiceKeys } from '../lib/api'
+import { getSeverityByPercentage } from '../lib/severity'
 
-export default function OverviewPage({ data, workload = 'omnistore', riskHistory, metricHistory, loading, setPage }) {
-  const systemStatus    = deriveSystemStatus(data)
-  const riskLevel       = data?.system?.prometheus_connected === false
-    && (data?.system?.num_services_down ?? 0) === 0
-    ? 'UNKNOWN'
-    : data?.risk_level ?? 'LOW'
-  const confidence      = data?.confidence          ?? null
-  const confPct         = confidence != null ? (confidence * 100).toFixed(1) : null
-  const serviceKeys     = deriveServiceKeys(data?.live_metrics, workload)
+export default function OverviewPage({
+  data,
+  systemStatus,
+  loading,
+  setPage,
+  metricHistory = {},
+  riskHistory   = [],
+}) {
+  const serviceKeys     = data?.service_order ?? Object.keys(data?.live_metrics ?? {})
   const affectedCount   = data?.affected_services ?? 0
   const affectedPct     = data?.affected_service_percentage
-    ?? (serviceKeys.length ? affectedCount / serviceKeys.length * 100 : 0)
-  const criticalityPct  = data?.criticality_percentage ?? affectedPct
+    ?? (serviceKeys.length ? (affectedCount / serviceKeys.length) * 100 : 0)
+  const criticalityPct  = Number(data?.criticality_percentage ?? affectedPct ?? 0)
   const recommendations = data?.recommendations     ?? []
 
   const liveMetrics = data?.live_metrics ?? {}
@@ -31,19 +30,44 @@ export default function OverviewPage({ data, workload = 'omnistore', riskHistory
   const numDown     = data?.system?.num_services_down ?? 0
   const servicesUp  = serviceKeys.filter(service => liveMetrics[service]?.service_up === 1).length
   const hasMetrics  = data?.system?.prometheus_connected !== false
+  const incidentImpact = data?.incident_impact ?? null
 
-  // sparkline: riskHistory[].risk is already 0-100 (stored as criticalityPct in App.jsx)
+  // Derive standardized 5-tier risk level (0-20 Low, 20-40 Moderate, 40-60 Medium, 60-80 High, 80-100 Critical)
+  const riskLevel = useMemo(() => {
+    if (!hasMetrics && numDown === 0) return 'UNKNOWN'
+    if (data?.criticality_severity) {
+      return String(data.criticality_severity).toUpperCase()
+    }
+    const pct = Number(criticalityPct)
+    if (pct > 80) return 'CRITICAL'
+    if (pct > 60) return 'HIGH'
+    if (pct > 40) return 'MEDIUM'
+    if (pct > 20) return 'MODERATE'
+    return 'LOW'
+  }, [data, hasMetrics, numDown, criticalityPct])
+
+  const riskColor = {
+    LOW:      '#10b981',
+    MODERATE: '#eab308',
+    MEDIUM:   '#f97316',
+    HIGH:     '#ef4444',
+    CRITICAL: '#dc2626',
+    UNKNOWN:  '#94a3b8',
+  }[riskLevel] ?? '#94a3b8'
+
+  // Sparkline history data
   const sparkData = riskHistory.map((h, i) => ({
     i,
     risk: Math.round(h.risk ?? 0),
     t:   h.t instanceof Date ? h.t.toLocaleTimeString() : '',
   }))
-  const riskColor = { LOW: '#34d399', MEDIUM: '#fbbf24', HIGH: '#f97316', CRITICAL: '#ef4444' }[riskLevel] ?? '#64748b'
 
   // Active incidents — latest per-service, non-RESOLVED
   const latestPerSvc = {}
   incidents.forEach(e => { if (!latestPerSvc[e.service]) latestPerSvc[e.service] = e })
   const activeIncidents = Object.values(latestPerSvc).filter(e => e.reason !== 'RESOLVED')
+
+  const confPct = data?.confidence != null ? Math.round(data.confidence * 100) : null
 
   return (
     <div className="space-y-6">
@@ -52,14 +76,14 @@ export default function OverviewPage({ data, workload = 'omnistore', riskHistory
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
         {/* System status KPIs */}
-        <div className="rounded-lg border border-slate-800 bg-slate-900 p-5 flex flex-col gap-3">
-          <p className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">System Status</p>
+        <div className="rounded-xl border border-slate-800 bg-[#0c1324] p-5 flex flex-col gap-3 shadow-xl">
+          <p className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">System Status</p>
           <SystemStatus status={systemStatus} loading={loading} />
           <div className="grid grid-cols-2 gap-3 mt-1 text-xs">
             <KpiCell label="Services Up"      value={loading ? '—' : `${hasMetrics ? servicesUp : '—'} / ${serviceKeys.length}`} warn={numDown > 0} />
             <KpiCell label="Active Incidents" value={loading ? '—' : String(activeIncidents.length)} warn={activeIncidents.length > 0} />
             <KpiCell
-              label="Services affected"
+              label="Services Affected"
               value={loading ? '—' : !hasMetrics ? 'No metrics' : `${Number(affectedPct).toFixed(1)}% (${affectedCount}/${serviceKeys.length})`}
               warn={affectedCount > 0}
             />
@@ -68,37 +92,63 @@ export default function OverviewPage({ data, workload = 'omnistore', riskHistory
               value={loading ? '—' : fmtPercent(data?.system?.error_rate_pct, hasMetrics)}
               warn={(data?.system?.error_rate_pct ?? 0) > 1}
             />
-            <KpiCell label="Max P99 Latency"  value={loading ? '—' : fmtMs(data?.system?.max_p99_latency)}    warn={(data?.system?.max_p99_latency ?? 0) > 1} />
+            <KpiCell label="Max P99 Latency"  value={loading ? '—' : fmtMs(data?.system?.max_p99_latency)} warn={(data?.system?.max_p99_latency ?? 0) > 1} />
           </div>
         </div>
 
-        {/* Criticality gauge + sparkline */}
-        <div className={`rounded-lg border p-5 flex flex-col gap-3 ${riskBg(riskLevel)}`}>
-          <p className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">System Criticality</p>
+        {/* System Criticality Gauge + Sparkline */}
+        <div className={`rounded-xl border p-5 flex flex-col justify-between gap-3 transition-colors duration-300 ${riskBg(riskLevel)}`}>
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">
+              System Criticality
+            </p>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+              riskLevel === 'CRITICAL' ? 'bg-red-950/80 text-red-300 border-red-700/80 animate-pulse' :
+              riskLevel === 'HIGH' ? 'bg-red-950/50 text-red-300 border-red-800/60' :
+              riskLevel === 'MEDIUM' ? 'bg-orange-950/60 text-orange-300 border-orange-700/60' :
+              riskLevel === 'MODERATE' ? 'bg-amber-950/60 text-amber-300 border-amber-700/60' :
+              'bg-emerald-950/50 text-emerald-300 border-emerald-800/50'
+            }`}>
+              {riskLevel} RISK
+            </span>
+          </div>
+
           {loading ? (
             <div className="h-12 bg-slate-800/50 rounded animate-pulse" />
           ) : (
-            <div className="flex items-end gap-3">
-              <span className="text-5xl font-black font-mono leading-none" style={{ color: riskColor }}>
+            <div className="flex items-baseline gap-3 my-1">
+              <span className="text-5xl font-black font-mono tracking-tight leading-none" style={{ color: riskColor }}>
                 {hasMetrics || numDown > 0 ? `${Number(criticalityPct).toFixed(1)}%` : 'No metrics'}
               </span>
-              <div className="mb-1 space-y-0.5">
-                <p className="text-lg font-bold" style={{ color: riskColor }}>{riskLevel}</p>
-                {confPct && <p className="text-[11px] text-slate-400">Conf: {confPct}%</p>}
+              <div className="space-y-0.5">
+                <p className="text-base font-bold uppercase tracking-wide" style={{ color: riskColor }}>
+                  {riskLevel}
+                </p>
+                {confPct && (
+                  <p className="text-[11px] text-slate-400 font-mono">Confidence: {confPct}%</p>
+                )}
               </div>
             </div>
           )}
-          <div className="h-2 w-full bg-slate-800/60 rounded-full overflow-hidden border border-slate-700/50">
-            <div className="h-full rounded-full transition-all duration-700"
-              style={{ width: `${hasMetrics || numDown > 0 ? Math.min(100, Math.max(0, criticalityPct)) : 0}%`, backgroundColor: riskColor }} />
+
+          <div className="h-2.5 w-full bg-slate-800/80 rounded-full overflow-hidden border border-slate-700/50">
+            <div
+              className="h-full rounded-full transition-all duration-700"
+              style={{
+                width: `${hasMetrics || numDown > 0 ? Math.min(100, Math.max(0, criticalityPct)) : 0}%`,
+                backgroundColor: riskColor,
+                boxShadow: `0 0 10px ${riskColor}80`,
+              }}
+            />
           </div>
+
           {sparkData.length > 1 && (
             <div className="h-12 mt-1">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={sparkData} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="rg" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor={riskColor} stopOpacity={0.35} />
+                      <stop offset="5%"  stopColor={riskColor} stopOpacity={0.4} />
                       <stop offset="95%" stopColor={riskColor} stopOpacity={0} />
                     </linearGradient>
                   </defs>
@@ -107,7 +157,7 @@ export default function OverviewPage({ data, workload = 'omnistore', riskHistory
                       ? <div className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-[10px] text-slate-200">{payload[0].value}%</div>
                       : null
                   } />
-                  <Area type="monotone" dataKey="risk" stroke={riskColor} fill="url(#rg)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                  <Area type="monotone" dataKey="risk" stroke={riskColor} fill="url(#rg)" strokeWidth={2} dot={false} isAnimationActive={false} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -115,17 +165,98 @@ export default function OverviewPage({ data, workload = 'omnistore', riskHistory
         </div>
 
         {/* Prediction factors */}
-        <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
-          <p className="text-[11px] text-slate-500 uppercase tracking-wider font-medium mb-3">Prediction Factors</p>
+        <div className="rounded-xl border border-slate-800 bg-[#0c1324] p-5 shadow-xl">
+          <p className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold mb-3">Prediction Factors</p>
           <FeatureImportance importances={importances} maxItems={6} loading={loading} />
         </div>
 
       </div>
 
-      {/* ── Row 2: Services ── */}
+      {/* ── Real-World Incident Impact & Consequences Panel ── */}
+      {incidentImpact && incidentImpact.status === 'INCIDENT_ACTIVE' && (
+        <section className="rounded-xl border border-red-800/50 bg-[#12080e] p-5 shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-1.5 h-full bg-red-600" />
+          
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="text-red-400" size={18} />
+              <h2 className="text-sm font-bold text-red-200 tracking-wide uppercase">
+                Active Incident Technical Impact &amp; Business Consequences
+              </h2>
+            </div>
+            <span className="text-[11px] font-mono font-semibold px-2.5 py-0.5 rounded-full bg-red-950 border border-red-700 text-red-300">
+              Root Cause: {toLabel(incidentImpact.root_cause_service)}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 text-xs">
+            {/* Customer impact */}
+            <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-3 space-y-1">
+              <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider">Customer Experience</span>
+              <p className="text-slate-300 leading-relaxed font-sans">{incidentImpact.customer_consequences}</p>
+            </div>
+
+            {/* Business impact */}
+            <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-3 space-y-1">
+              <span className="text-[10px] uppercase font-bold text-red-400 tracking-wider">Business Impact</span>
+              <p className="text-slate-300 leading-relaxed font-sans">{incidentImpact.business_impact}</p>
+            </div>
+
+            {/* Technical impact */}
+            <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-3 space-y-1">
+              <span className="text-[10px] uppercase font-bold text-indigo-400 tracking-wider">Technical Architecture</span>
+              <p className="text-slate-300 leading-relaxed font-sans">{incidentImpact.technical_impact}</p>
+            </div>
+          </div>
+
+          {/* Breakdown pills: Directly Affected, Indirectly Affected, Healthy */}
+          <div className="flex items-center gap-4 text-xs flex-wrap border-t border-slate-800/80 pt-3">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] uppercase font-semibold text-slate-500">Directly Affected:</span>
+              {incidentImpact.directly_affected?.length ? (
+                incidentImpact.directly_affected.map(s => (
+                  <span key={s} className="px-2 py-0.5 rounded bg-red-950/70 border border-red-700/70 text-red-300 text-[11px] font-mono">
+                    {toLabel(s).replace(' Service', '')}
+                  </span>
+                ))
+              ) : (
+                <span className="text-slate-500 italic text-[11px]">None</span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] uppercase font-semibold text-slate-500">Indirectly Affected:</span>
+              {incidentImpact.indirectly_affected?.length ? (
+                incidentImpact.indirectly_affected.map(s => (
+                  <span key={s} className="px-2 py-0.5 rounded bg-orange-950/60 border border-orange-700/60 text-orange-300 text-[11px] font-mono">
+                    {toLabel(s).replace(' Service', '')}
+                  </span>
+                ))
+              ) : (
+                <span className="text-slate-500 italic text-[11px]">None</span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] uppercase font-semibold text-slate-500">Healthy / Unaffected:</span>
+              {incidentImpact.healthy_services?.length ? (
+                incidentImpact.healthy_services.map(s => (
+                  <span key={s} className="px-2 py-0.5 rounded bg-emerald-950/50 border border-emerald-800/50 text-emerald-300 text-[11px] font-mono">
+                    {toLabel(s).replace(' Service', '')}
+                  </span>
+                ))
+              ) : (
+                <span className="text-slate-500 italic text-[11px]">None</span>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── Row 2: Services Grid ── */}
       <section>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Services</h2>
+          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Services Operational Health</h2>
           <button onClick={() => setPage('services')} className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors">
             View all →
           </button>
@@ -146,15 +277,15 @@ export default function OverviewPage({ data, workload = 'omnistore', riskHistory
         )}
       </section>
 
-      {/* ── Row 3: Active Incidents (replaces Why-This-Score) + Recommendations ── */}
+      {/* ── Row 3: Active Incidents + Recommendations ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
         {/* Active Incidents panel */}
-        <div className="rounded-lg border border-slate-800 bg-slate-900 p-5 flex flex-col">
+        <div className="rounded-xl border border-slate-800 bg-[#0c1324] p-5 flex flex-col shadow-xl">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Bell size={14} className={activeIncidents.length > 0 ? 'text-red-400' : 'text-slate-500'} />
-              <h2 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Active Incidents</h2>
+              <h2 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Active Incident Feed</h2>
               {activeIncidents.length > 0 && (
                 <span className="ml-1 text-[10px] font-bold text-red-300 bg-red-950/60 border border-red-800/60 px-1.5 py-0.5 rounded-full">
                   {activeIncidents.length}
@@ -178,7 +309,7 @@ export default function OverviewPage({ data, workload = 'omnistore', riskHistory
               </div>
               <div>
                 <p className="text-xs font-semibold text-emerald-300">No Active Incidents</p>
-                <p className="text-[11px] text-slate-500 mt-0.5">All services are operating normally</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">All services are operating normally within SLA</p>
               </div>
             </div>
           ) : (
@@ -190,8 +321,8 @@ export default function OverviewPage({ data, workload = 'omnistore', riskHistory
           )}
         </div>
 
-        {/* Recommendations panel */}
-        <div className="rounded-lg border border-slate-800 bg-slate-900 p-5 flex flex-col">
+        {/* Recommendations & Runbook panel */}
+        <div className="rounded-xl border border-slate-800 bg-[#0c1324] p-5 flex flex-col shadow-xl">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Wrench size={14} className="text-indigo-400" />
@@ -221,45 +352,33 @@ export default function OverviewPage({ data, workload = 'omnistore', riskHistory
                 const isP2 = rec.priority === 'P2'
                 const accent = isP1 ? 'border-red-500/70' : isP2 ? 'border-amber-500/60' : 'border-emerald-500/50'
                 const pBadge = isP1
-                  ? 'text-red-300 bg-red-950/60 border-red-800'
+                  ? 'bg-red-950 text-red-300 border-red-800'
                   : isP2
-                  ? 'text-amber-300 bg-amber-950/60 border-amber-800'
-                  : 'text-emerald-300 bg-emerald-950/60 border-emerald-800'
-                const measures = Array.isArray(rec.measures) && rec.measures.length > 0
-                  ? rec.measures
-                  : [rec.suggestion || rec.recommendation].filter(Boolean)
+                  ? 'bg-amber-950 text-amber-300 border-amber-800'
+                  : 'bg-emerald-950 text-emerald-300 border-emerald-800'
+
                 return (
-                  <div key={i} className={`rounded-lg border border-slate-800 bg-slate-950/50 p-3.5 space-y-2.5 border-l-4 ${accent}`}>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border font-mono ${pBadge}`}>
-                        {rec.priority ?? 'P2'}
-                      </span>
-                      <span className="text-[11px] font-semibold text-slate-200 uppercase">{rec.service}</span>
+                  <div key={rec.id ?? i} className={`rounded-lg border bg-slate-900/60 p-3.5 space-y-2 text-xs ${accent}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border ${pBadge}`}>
+                          {rec.priority ?? 'P3'}
+                        </span>
+                        <span className="font-semibold text-slate-200">{toLabel(rec.service)}</span>
+                      </div>
+                      {rec.category && (
+                        <span className="text-[10px] text-slate-500 font-mono capitalize">{rec.category}</span>
+                      )}
                     </div>
-                    <p className="text-xs font-semibold text-white leading-snug">{rec.title || rec.recommendation}</p>
-                    {(rec.what_is_happening || rec.why) && (
-                      <div className="rounded bg-amber-950/20 border border-amber-900/30 px-2.5 py-2">
-                        <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-1">Cause</p>
-                        <p className="text-[11px] text-slate-300 leading-relaxed">{rec.what_is_happening || rec.why}</p>
-                      </div>
-                    )}
-                    {measures.length > 0 && (
-                      <div className="rounded bg-indigo-950/20 border border-indigo-900/30 px-2.5 py-2">
-                        <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mb-1.5">Fix</p>
-                        <ul className="space-y-1">
-                          {measures.slice(0, 3).map((m, mi) => (
-                            <li key={mi} className="flex items-start gap-1.5 text-[11px] text-slate-300">
-                              <span className="shrink-0 text-indigo-500 font-bold mt-0.5">{mi + 1}.</span>
-                              <span>{m}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {rec.command && (
-                      <code className="block text-[10px] font-mono text-green-400 bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 break-all select-all">
-                        {rec.command}
-                      </code>
+
+                    <p className="font-medium text-slate-200 leading-snug">{rec.title ?? rec.recommendation}</p>
+
+                    {rec.measures && rec.measures.length > 0 && (
+                      <ul className="space-y-1 mt-1 text-[11px] text-slate-400 font-mono list-disc list-inside">
+                        {rec.measures.map((m, mIdx) => (
+                          <li key={mIdx}>{m}</li>
+                        ))}
+                      </ul>
                     )}
                   </div>
                 )
@@ -274,12 +393,6 @@ export default function OverviewPage({ data, workload = 'omnistore', riskHistory
   )
 }
 
-// ── Active Incident Card ───────────────────────────────────────────────────────
-const REASON_ICON = {
-  SERVICE_DOWN:    XCircle,
-  HIGH_ERROR_RATE: AlertTriangle,
-  HIGH_LATENCY:    Clock,
-}
 const REASON_STYLE = {
   SERVICE_DOWN:    { bg: 'bg-red-950/30 border-red-800/40', icon: 'text-red-400', badge: 'bg-red-950 text-red-300 border-red-800' },
   HIGH_ERROR_RATE: { bg: 'bg-orange-950/20 border-orange-800/30', icon: 'text-orange-400', badge: 'bg-orange-950 text-orange-300 border-orange-800' },
@@ -288,11 +401,10 @@ const REASON_STYLE = {
 
 function ActiveIncidentCard({ event }) {
   const cfg  = REASON_STYLE[event.reason] ?? { bg: 'bg-slate-800/40 border-slate-700', icon: 'text-slate-400', badge: 'bg-slate-800 text-slate-300 border-slate-700' }
-  const Icon = REASON_ICON[event.reason] ?? AlertTriangle
   const svcLabel = (event.service ?? '').charAt(0).toUpperCase() + (event.service ?? '').slice(1) + ' Service'
   return (
     <div className={`flex items-start gap-3 px-3 py-2.5 rounded-lg border text-xs ${cfg.bg}`}>
-      <Icon size={13} className={`${cfg.icon} shrink-0 mt-0.5`} />
+      <AlertTriangle size={13} className={`${cfg.icon} shrink-0 mt-0.5`} />
       <div className="flex-1 min-w-0 space-y-0.5">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-semibold text-slate-200">{svcLabel}</span>
@@ -310,7 +422,6 @@ function ActiveIncidentCard({ event }) {
   )
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 function KpiCell({ label, value, warn = false }) {
   return (
     <div>
@@ -321,12 +432,13 @@ function KpiCell({ label, value, warn = false }) {
 }
 
 function riskBg(level) {
-  return {
-    LOW:      'border-emerald-900/50 bg-emerald-950/20',
-    MEDIUM:   'border-amber-900/50   bg-amber-950/20',
-    HIGH:     'border-orange-900/50  bg-orange-950/20',
-    CRITICAL: 'border-red-900/50     bg-red-950/20',
-  }[level] ?? 'border-slate-800 bg-slate-900'
+  const norm = (level || '').toUpperCase()
+  if (norm === 'CRITICAL') return 'border-red-900/70 bg-red-950/25 shadow-xl shadow-red-950/30'
+  if (norm === 'HIGH') return 'border-red-900/60 bg-red-950/15 shadow-xl shadow-red-950/20'
+  if (norm === 'MEDIUM') return 'border-orange-900/60 bg-orange-950/20 shadow-xl shadow-orange-950/20'
+  if (norm === 'MODERATE') return 'border-amber-900/60 bg-amber-950/20 shadow-xl shadow-amber-950/20'
+  if (norm === 'LOW' || norm === 'INFORMATIONAL') return 'border-emerald-900/50 bg-emerald-950/20 shadow-xl shadow-emerald-950/20'
+  return 'border-slate-800 bg-slate-900'
 }
 
 function fmtPercent(v, metricsAvailable) {

@@ -165,12 +165,21 @@ export default function AuthModal({
           <div className="grid grid-cols-1 gap-2">
             <button
               type="button"
+              onClick={() => handleDemoLogin('ADMIN')}
+              disabled={loading}
+              className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 hover:border-indigo-500/50 text-slate-300 hover:text-indigo-300 text-xs font-medium transition text-left"
+            >
+              <span className="block font-bold text-indigo-400">Admin</span>
+              <span className="text-[10px] text-slate-500">admin &bull; admin123 &bull; Full Access</span>
+            </button>
+            <button
+              type="button"
               onClick={() => handleDemoLogin('CUSTOMER')}
               disabled={loading}
               className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 hover:border-emerald-500/50 text-slate-300 hover:text-emerald-300 text-xs font-medium transition text-left"
             >
               <span className="block font-bold text-emerald-400">Demo Customer</span>
-              <span className="text-[10px] text-slate-500">alice &bull; Shopping Mode</span>
+              <span className="text-[10px] text-slate-500">alice &bull; password123 &bull; Shopping Mode</span>
             </button>
           </div>
         </div>

@@ -45,16 +45,17 @@ export default function SystemStatus({ status = 'UNKNOWN', loading = false }) {
  */
 export function deriveSystemStatus(data) {
   if (!data) return 'UNKNOWN'
-  const level = data.risk_level ?? 'LOW'
+  const level = (data.risk_level || data.criticality_severity || 'LOW').toUpperCase()
   const down  = data.system?.num_services_down ?? 0
+  const pct   = Number(data.criticality_percentage ?? data.affected_percentage ?? 0)
   if (
     data.system?.prometheus_connected === false
     && down === 0
     && !['HIGH', 'CRITICAL'].includes(level)
   ) return 'UNKNOWN'
   const maxErrPct = data.system?.max_error_rate_pct ?? 0
-  if (level === 'CRITICAL' || down >= 2 || maxErrPct >= 35) return 'CRITICAL'
-  if (level === 'HIGH'     || down >= 1 || level === 'MEDIUM' || maxErrPct >= 8) return 'DEGRADED'
+  if (level === 'CRITICAL' || pct >= 75 || down >= 2 || maxErrPct >= 35) return 'CRITICAL'
+  if (level === 'HIGH'     || level === 'MEDIUM' || level === 'MODERATE' || pct >= 25 || down >= 1 || maxErrPct >= 8) return 'DEGRADED'
   return 'HEALTHY'
 }
 

@@ -15,7 +15,8 @@ public class Order {
     private Integer quantity;
     private Double amount;
     private String status;
-    private String statusReason;   // admin note or failure reason
+    private String statusReason;
+    private String shippingAddress;   // actual customer shipping address
     private Instant createdAt = Instant.now();
     private Instant updatedAt = Instant.now();
 
@@ -54,6 +55,9 @@ public class Order {
 
     public String getStatusReason() { return statusReason; }
     public void setStatusReason(String statusReason) { this.statusReason = statusReason; }
+
+    public String getShippingAddress() { return shippingAddress; }
+    public void setShippingAddress(String shippingAddress) { this.shippingAddress = shippingAddress; }
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }

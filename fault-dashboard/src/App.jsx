@@ -593,6 +593,24 @@ function InjectForm({
             <span>100 ms</span>
             <span>10 s</span>
           </div>
+          {/* Presets */}
+          <div className="flex items-center gap-1.5 pt-1 flex-wrap">
+            <span className="text-[10px] text-slate-500">Presets:</span>
+            {[500, 2000, 5000, 9900].map(p => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setDelayMs(p)}
+                className={`px-2 py-0.5 rounded text-[10px] font-mono border transition-colors ${
+                  delayMs === p
+                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-bold'
+                    : 'bg-slate-800/60 border-slate-700/60 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {p} ms
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

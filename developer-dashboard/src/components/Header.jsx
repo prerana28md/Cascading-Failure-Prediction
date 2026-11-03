@@ -62,12 +62,14 @@ export default function Header({
     return () => document.removeEventListener('mousedown', handleClick)
   }, [obsOpen])
 
-  const riskDot = {
-    LOW:      'bg-emerald-400',
-    MEDIUM:   'bg-amber-400',
-    HIGH:     'bg-orange-500',
-    CRITICAL: 'bg-red-500 animate-pulse',
-  }[riskLevel] ?? 'bg-slate-500'
+  const riskConfig = {
+    LOW:      { dot: 'bg-emerald-400', text: 'text-emerald-400', badge: 'bg-emerald-950/40 border-emerald-800/50' },
+    MODERATE: { dot: 'bg-amber-400',   text: 'text-amber-400',   badge: 'bg-amber-950/40 border-amber-800/50' },
+    MEDIUM:   { dot: 'bg-orange-400',  text: 'text-orange-400',  badge: 'bg-orange-950/40 border-orange-800/50' },
+    HIGH:     { dot: 'bg-red-500',     text: 'text-red-400',     badge: 'bg-red-950/50 border-red-800/60 shadow-sm shadow-red-950/40' },
+    CRITICAL: { dot: 'bg-red-500 animate-pulse', text: 'text-red-400 font-bold', badge: 'bg-red-950/70 border-red-700 shadow-sm shadow-red-950/60 ring-1 ring-red-500/30' },
+    UNKNOWN:  { dot: 'bg-slate-500',  text: 'text-slate-400',   badge: 'bg-slate-800/40 border-slate-700/50' },
+  }[riskLevel] ?? { dot: 'bg-slate-500', text: 'text-slate-400', badge: 'bg-slate-800/40 border-slate-700/50' }
 
   const since = lastUpdated
     ? Math.round((Date.now() - lastUpdated.getTime()) / 1000)
@@ -237,10 +239,10 @@ export default function Header({
 
           <div className="flex-1" />
 
-          {/* Risk pill */}
-          <div className="hidden sm:flex items-center gap-1.5 text-xs">
-            <span className={`w-1.5 h-1.5 rounded-full ${riskDot}`} />
-            <span className="text-slate-400">{riskLevel} RISK</span>
+          {/* Risk indicator badge */}
+          <div className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs ${riskConfig.badge}`}>
+            <span className={`w-2 h-2 rounded-full ${riskConfig.dot}`} />
+            <span className={`font-semibold tracking-wide ${riskConfig.text}`}>{riskLevel} RISK</span>
           </div>
 
           <div className="h-5 w-px bg-slate-800" />

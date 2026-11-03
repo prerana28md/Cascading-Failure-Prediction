@@ -156,37 +156,23 @@ function MovieStreamMain() {
   const [selectedMovie, setSelectedMovie] = useState(null)
   const [playingMovie, setPlayingMovie] = useState(null)
   // Catalog loader function
+  const [catalogError, setCatalogError] = useState(null)
+
   const loadCatalogData = useCallback(() => {
+    // Track if catalog is failing (DOWN/ERROR fault injection)
     fetchBillboard().then(res => {
-      if (res.data) setBillboard(res.data)
+      if (res.data) { setBillboard(res.data); setCatalogError(null) }
+      else if (res.error) setCatalogError(res.error)
     })
-    fetchTop10().then(res => {
-      if (res.data) setTop10(res.data)
-    })
-    fetchTrending().then(res => {
-      if (res.data) setTrending(res.data)
-    })
-    fetchIndianCinema().then(res => {
-      if (res.data) setIndianCinema(res.data)
-    })
-    fetchOriginals().then(res => {
-      if (res.data) setOriginals(res.data)
-    })
-    fetchTVShows().then(res => {
-      if (res.data) setTvShows(res.data)
-    })
-    fetchMovies().then(res => {
-      if (res.data) setAllMovies(res.data)
-    })
-    fetchTopRated().then(res => {
-      if (res.data) setTopRated(res.data)
-    })
-    fetchGenreMovies(878).then(res => {
-      if (res.data) setScifi(res.data)
-    })
-    fetchGenreMovies(28).then(res => {
-      if (res.data) setAction(res.data)
-    })
+    fetchTop10().then(res => { if (res.data) setTop10(res.data) })
+    fetchTrending().then(res => { if (res.data) setTrending(res.data) })
+    fetchIndianCinema().then(res => { if (res.data) setIndianCinema(res.data) })
+    fetchOriginals().then(res => { if (res.data) setOriginals(res.data) })
+    fetchTVShows().then(res => { if (res.data) setTvShows(res.data) })
+    fetchMovies().then(res => { if (res.data) setAllMovies(res.data) })
+    fetchTopRated().then(res => { if (res.data) setTopRated(res.data) })
+    fetchGenreMovies(878).then(res => { if (res.data) setScifi(res.data) })
+    fetchGenreMovies(28).then(res => { if (res.data) setAction(res.data) })
   }, [])
 
   // 1. Initial Load: Profiles and Catalog
@@ -213,12 +199,18 @@ function MovieStreamMain() {
         setRecommendations(res.data)
         setRecommendationMessage('')
       } else if (res.error) {
-        setRecommendationMessage('Personalized picks are temporarily unavailable. Please try again later.')
+        const isDown = res.status === 503 || res.status === 500
+        setRecommendationMessage(
+          isDown
+            ? '⚠ Recommendation service is temporarily down. Showing popular titles instead.'
+            : 'Personalized picks are temporarily unavailable. Please try again later.'
+        )
       }
     })
 
     fetchContinueWatching(userId).then(res => {
       if (res.data) setContinueWatching(res.data)
+      // Silent fail — continue watching section just stays empty
     })
 
     fetchWatchlist(userId).then(res => {
@@ -226,6 +218,7 @@ function MovieStreamMain() {
         setWatchlist(res.data)
         setWatchlistIds(new Set(res.data.map(m => m.id)))
       }
+      // Silent fail — watchlist section stays empty, no crash
     })
   }, [])
 
@@ -325,6 +318,14 @@ function MovieStreamMain() {
       {recommendationMessage && (
         <div role="status" className="fixed top-16 sm:top-20 left-0 right-0 z-40 bg-zinc-900/95 border-b border-zinc-700 px-4 py-2 text-center text-xs text-zinc-300">
           {recommendationMessage}
+        </div>
+      )}
+
+      {/* Catalog service fault banner — shown when catalog is DOWN or ERROR */}
+      {catalogError && (
+        <div role="alert" className="fixed top-16 sm:top-20 left-0 right-0 z-40 bg-red-950/95 border-b border-red-800 px-4 py-2.5 text-center text-xs text-red-300 flex items-center justify-center gap-2">
+          <span className="text-red-400 font-bold">⚠ Catalog Service Degraded</span>
+          <span className="text-red-300">— Movie browsing is temporarily limited. Fault injected for testing.</span>
         </div>
       )}
 

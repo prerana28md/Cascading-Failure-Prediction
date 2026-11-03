@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 
 import Header        from './components/Header'
 import OverviewPage  from './pages/OverviewPage'
@@ -41,7 +41,11 @@ export default function App() {
   }
 
   const fetchData = useCallback(async () => {
-    if (activeRequest.current) return
+    // Cancel any in-flight request and start a fresh one immediately
+    if (activeRequest.current) {
+      activeRequest.current.abort()
+      activeRequest.current = null
+    }
     const requestId = ++requestSequence.current
     const controller = new AbortController()
     activeRequest.current = controller
@@ -114,10 +118,21 @@ export default function App() {
     return () => clearInterval(id)
   }, [autoRefresh, fetchData])
 
-  const riskLevel = data?.system?.prometheus_connected === false
-    && (data?.system?.num_services_down ?? 0) === 0
-    ? 'UNKNOWN'
-    : data?.risk_level ?? 'LOW'
+  const riskLevel = useMemo(() => {
+    if (data?.system?.prometheus_connected === false && (data?.system?.num_services_down ?? 0) === 0) {
+      return 'UNKNOWN'
+    }
+    if (data?.criticality_severity) {
+      return String(data.criticality_severity).toUpperCase()
+    }
+    const raw = (data?.risk_level || '').toUpperCase()
+    const pct = Number(data?.criticality_percentage ?? data?.affected_percentage ?? 0)
+    if (raw === 'CRITICAL' || pct > 80) return 'CRITICAL'
+    if (raw === 'HIGH' || pct > 60) return 'HIGH'
+    if (raw === 'MEDIUM' || pct > 40) return 'MEDIUM'
+    if (raw === 'MODERATE' || pct > 20) return 'MODERATE'
+    return 'LOW'
+  }, [data])
 
   return (
     <div className="min-h-screen bg-[#060d1a] text-slate-100 font-sans">

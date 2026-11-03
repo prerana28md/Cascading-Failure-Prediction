@@ -261,22 +261,23 @@ export const api = {
   },
 
   async demoLogin(role = 'CUSTOMER') {
-    const username = role === 'ADMIN' ? 'admin' : 'customer';
-    const password = 'password123';
+    const creds = role === 'ADMIN'
+      ? { username: 'admin',    password: 'admin123'    }
+      : { username: 'alice',    password: 'password123' }
+    const { username, password } = creds
+
     // 1. Try login first
-    const loginRes = await this.login(username, password);
-    if (loginRes.data && !loginRes.error) {
-      return loginRes;
-    }
-    // 2. If login fails (user does not exist yet), register user
-    const regRes = await this.register(username, password, role === 'ADMIN' ? 'ADMIN' : 'USER');
-    if (regRes.data && !regRes.error) {
-      return regRes;
-    }
-    // 3. Fallback demo session if backend is completely cold
-    const fallbackUser = { username, role: role === 'ADMIN' ? 'ADMIN' : 'CUSTOMER' };
-    localStorage.setItem('omnistore_user', JSON.stringify(fallbackUser));
-    return { data: fallbackUser, error: null, isMock: true };
+    const loginRes = await this.login(username, password)
+    if (loginRes.data && !loginRes.error) return loginRes
+
+    // 2. If not found, register
+    const regRes = await this.register(username, password, role === 'ADMIN' ? 'ADMIN' : 'USER')
+    if (regRes.data && !regRes.error) return regRes
+
+    // 3. Fallback offline session
+    const fallbackUser = { username, role: role === 'ADMIN' ? 'ADMIN' : 'CUSTOMER' }
+    localStorage.setItem('omnistore_user', JSON.stringify(fallbackUser))
+    return { data: fallbackUser, error: null, isMock: true }
   },
 
   // Check API Gateway connection health
@@ -334,7 +335,8 @@ export const api = {
     return request('/inventory', { method: 'GET' }, 'inventory');
   },
   async getInventoryById(id) {
-    return request(`/inventory/${id}`, { method: 'GET' });
+    // Use /inventory/product/{productId} — the correct endpoint for productId lookup
+    return request(`/inventory/product/${id}`, { method: 'GET' });
   },
   async createInventoryItem(item) {
     return request('/inventory', {

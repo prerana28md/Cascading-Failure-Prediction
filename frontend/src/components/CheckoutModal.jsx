@@ -59,9 +59,8 @@ export default function CheckoutModal({
     if (e) e.preventDefault();
     setStep('SUBMITTING');
     setErrorDetails(null);
-    setFailedService(null);
 
-    // Primary product from cart (Order service schema takes productId, quantity, amount)
+    // Primary product from cart (Order service takes one productId/quantity per order)
     const primaryItem = cartItems[0] || {};
     const primaryProduct = primaryItem.product || {};
 
@@ -81,11 +80,13 @@ export default function CheckoutModal({
         setCreatedOrder(res.data);
         setStep('SUCCESS');
       } else {
-        setErrorDetails('We could not place your order right now. Please try again.');
+        // Show the actual backend error message (inventory fault, payment fault, etc.)
+        const backendMsg = res?.error || 'We could not place your order right now. Please try again.';
+        setErrorDetails(backendMsg);
         setStep('FAILURE');
       }
     } catch (err) {
-      setErrorDetails('We could not place your order right now. Please try again.');
+      setErrorDetails(err?.message || 'An unexpected error occurred. Please try again.');
       setStep('FAILURE');
     }
   };
@@ -333,8 +334,18 @@ export default function CheckoutModal({
                     We couldn't place your order
                   </h3>
                   <p className="text-xs text-slate-300 mt-1">
-                    {errorDetails}
+                    {errorDetails || 'We could not place your order right now. Please try again.'}
                   </p>
+                  {/* Show fault-aware hint when a service is down */}
+                  {errorDetails && (errorDetails.toLowerCase().includes('inventory') || errorDetails.toLowerCase().includes('stock')) && (
+                    <p className="text-xs text-amber-400 mt-2 font-semibold">⚠ Inventory service may be degraded. Check stock availability.</p>
+                  )}
+                  {errorDetails && errorDetails.toLowerCase().includes('payment') && (
+                    <p className="text-xs text-amber-400 mt-2 font-semibold">⚠ Payment service may be unavailable. Try a different payment method or retry later.</p>
+                  )}
+                  {errorDetails && (errorDetails.toLowerCase().includes('unavailable') || errorDetails.toLowerCase().includes('503')) && (
+                    <p className="text-xs text-amber-400 mt-2 font-semibold">⚠ A required service is temporarily down. Our team has been notified.</p>
+                  )}
                 </div>
               </div>
 
